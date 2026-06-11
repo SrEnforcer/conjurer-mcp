@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "conjurer-mcp": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "/home/user1/projects/personal/cnj-mcp/packages/mcp-server/dist/server.js"
+      ],
+      "env": {}
+    }
+  }
+}

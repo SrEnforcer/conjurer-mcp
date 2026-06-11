@@ -1,0 +1,383 @@
+;;; vscode-extension.cnj
+;;; The VS Code extension (VSIX) — companion UI over the shared core.
+;;; References the project anchor for charter, assets, and assumptions.
+;;; Models: the extension's user-facing features (Section V) and its module
+;;; decomposition + bundling strategy (Section VI).
+
+(charter "Conjurer VS Code Extension"
+  :version  "0.1.0"
+  :created  "2026-06-05"
+  :updated  "2026-06-06"
+  :domain   "A VS Code extension giving .cnj and Conjurer authors inline,
+             editor-native access to the spec — CodeLens actions, hover docs, and
+             commands — built on the same @conjurer/core as the MCP server."
+  :language :en
+  :goals [
+    "Surface spec content where the author already is: hovering a symbol shows its
+     synopsis; a CodeLens above a charter offers validate-and-summarise; commands
+     expose lookup and section retrieval — all without leaving the editor."
+    "Support Explorer right-click materialisation on any selected folder that
+     contains .cnj design inputs (folder name is unconstrained). The command must
+     tolerate references outside the selected folder, and must show explicit
+     unresolved/non-readable references before materialisation output is emitted."
+    "Author the extension as modular TypeScript bundled to a single
+     dist/extension.js, fixing the prior single-source-file extension.js."]
+  :audience {:primary :senior-engineer}
+  :decisions [
+    {:date "2026-06-05"
+     :decision "Source is modular TypeScript under the TSF++ limit; esbuild bundles
+                it to dist/extension.js. The single-file output is a build artefact.
+                This is the explicit fix for the prior 'one giant extension.js'."}
+    {:date "2026-06-05"
+     :decision "The extension depends on @conjurer/core directly for v1 (in-process
+                lookup/parse/validate), NOT by spawning the MCP server. Rationale:
+                simpler, no subprocess lifecycle, and the core is already the shared
+                home of the logic. Talking MCP to a spawned server is a later option
+                if the extension ever needs tool parity with external agents."}
+    {:date "2026-06-06"
+     :decision "Materialise Folder is exposed through Explorer context menu for
+                any folder selection, not by fixed folder name. Default generated
+                package identity is conjurer-mcp, with override option in command
+                UI. Unresolved/non-readable references are displayed explicitly in
+                preflight diagnostics rather than silently ignored."}
+    {:date "2026-06-06"
+     :decision "No extension/server split-brain: folder preflight uses the shared
+                core preflight-resolver via core-bridge. If MCP transport parity
+                is added later, server materialise_preflight remains a thin wrapper
+                over the same resolver and report shape."}
+    {:date "2026-06-10"
+     :decision "validate-on-save: validate the active .cnj on every save via
+                onDidSaveTextDocument; violations surface as squiggles and Problems
+                panel entries via vscode.DiagnosticCollection. No debounce needed
+                at the save event boundary. Resolves :open question."}
+    {:date "2026-06-10"
+     :decision "codelens-candidate-score: emit a 'score: N · status' CodeLens on
+                every f/candidate opening line. Format chosen: 'score: 33 · planned'.
+                Clicking the lens shows an information message with id, score, and status
+                via conjurer.showCandidateDetails command. Parsing is lazy — toCnjModel
+                is only called when at least one f/candidate line is found in the file."}
+    {:date "2026-06-10"
+     :decision "foresight-health-statusbar: trigger on onDidChangeActiveTextEditor
+                (file-open). No FileSystemWatcher needed for v1 — status reflects the
+                saved state of the workspace at the point the file is opened. Clicking
+                the status bar item opens a QuickPick listing all health issues."}
+    {:date "2026-06-10"
+     :decision "hoisted-form-folding: f/hoist forms and f/candidate forms with
+                :status :hoisted are collapsed by default on first open of a .cnj file.
+                Implementation: FoldingRangeProvider (providers/folding.ts) declares
+                the ranges; onDidChangeActiveTextEditor + a per-session Set fires
+                editor.fold on first activation only — tab-switches do not re-collapse
+                forms the user has manually expanded. computeHoistFoldRanges is pure
+                and uses a boundary scan (top-level form starts) so body content
+                (:status :hoisted) can be checked without a full parse."}]
+  :open [
+    "Marketplace publication vs local VSIX install for v1 — likely local-only,
+     matching the solo, local-first stance."]
+  :outputs {
+    :vscode-extension (target :typescript :standard :tsf-plus-plus)}
+  :references ["conjurer-mcp.cnj"]
+  :tags [:vscode :extension :typescript :developer-experience])
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Section V — Domain work: extension features
+;;; ─────────────────────────────────────────────────────────────────
+
+(spell hover-symbol
+  :feature     "Hover documentation"
+  :purpose     "Hovering a Conjurer symbol in a .cnj or grimoire shows its synopsis,
+                signature, and key-params — pulled from the core, no file opened"
+  :trigger     "editor hover over a recognised symbol token"
+  :backed-by   :symbol-index
+  :shows       [:synopsis :signature :key-params]
+  :determinism :pure)
+
+(spell codelens-charter
+  :feature     "Charter CodeLens"
+  :purpose     "A CodeLens above a (charter ...) form offering inline actions:
+                validate this .cnj, summarise the charter, list open questions"
+  :trigger     "a charter form detected at the top of a .cnj"
+  :actions     ["Validate .cnj" "Summarise charter" "Show open questions"]
+  :backed-by   :validation   ;; and cnj-model for the summary
+  :determinism :pure)
+
+(spell codelens-symbol
+  :feature     "Symbol CodeLens"
+  :purpose     "A CodeLens above a recognised construct invocation offering
+                'Show examples' and 'Show rationale', fetching only that section"
+  :trigger     "a known symbol invocation in a .cnj"
+  :actions     ["Show examples" "Show rationale" "Open grimoire section"]
+  :backed-by   :spec-reader
+  :determinism :pure)
+
+(spell command-lookup
+  :feature     "Command: Conjurer — Look up symbol"
+  :purpose     "Command-palette entry that prompts for a symbol and shows its full
+                record in a panel; the editor-native twin of lookup_symbol"
+  :trigger     "command palette"
+  :backed-by   :symbol-index
+  :determinism :pure)
+
+(spell command-validate
+  :feature     "Command: Conjurer — Validate current .cnj"
+  :purpose     "Validate the active .cnj and surface violations as editor
+                diagnostics (squiggles + Problems panel)"
+  :trigger     "command palette or on-save (see :open)"
+  :backed-by   :validation
+  :produces    [:diagnostics]
+  :determinism :pure)
+
+(spell command-materialise-folder
+  :feature     "Command: Conjurer — Materialise folder"
+  :purpose     "Explorer right-click command over a selected folder containing
+                .cnj design inputs. Runs deterministic preflight, then materialises
+                outputs using local IDE semantic generation policy."
+  :trigger     "Explorer context menu on folder"
+  :accepts     {:folder       "selected folder path (name unconstrained)"
+                :project_name "optional string — defaults to conjurer-mcp"}
+  :produces    {:deterministic [:preflight-report :resolved-refs :unresolved-refs]
+                :semantic      [:materialisation-plan :workspace-files]}
+  :preflight   {:must-report [:resolved-outside-folder :unresolved :non-readable]
+                :blocks-if   [:unresolved-critical]}
+  :backed-by   :preflight-resolver
+  :then        :claude-materialise
+  :determinism :hybrid)
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Section VI — Module decomposition and bundling (TSF++: ≤ 400 lines/module)
+;;; ─────────────────────────────────────────────────────────────────
+
+(target :vscode-extension
+  :language  :typescript
+  :framework :vscode-extension-api
+  :standard  :tsf-plus-plus
+  :from      :shared-core
+  :via       :direct
+  :produces  [:vsix :bundled-extension]
+  :bundling  {:tool :esbuild
+      :entry "packages/vscode-extension/src/extension.ts"
+      :output "packages/vscode-extension/dist/extension.js"
+              :note "Single-file output is a BUILD ARTEFACT. Source stays modular.
+                     external: ['vscode']; platform: 'node'; format: 'cjs'."}
+  :modules [
+    {:module "extension.ts"
+     :responsibility "activate()/deactivate() entry: register providers and
+                      commands, then nothing else. Wiring only."
+     :exports ["activate" "deactivate"]
+     :est-lines 90}
+    {:module "providers/hover.ts"
+     :responsibility "HoverProvider — resolve the token under the cursor to a
+                      symbol record via core, render markdown."
+     :exports ["ConjurerHoverProvider"]
+     :est-lines 130}
+    {:module "providers/codelens.ts"
+     :responsibility "CodeLensProvider — detect charter and symbol forms, emit the
+                      lenses and their command bindings."
+     :exports ["ConjurerCodeLensProvider"]
+     :est-lines 200}
+    {:module "commands/lookup.ts"
+     :responsibility "Look-up and section commands; render results in a webview or
+                      output channel."
+     :exports ["registerLookupCommands"]
+     :est-lines 160}
+    {:module "commands/validate.ts"
+     :responsibility "Validate command + on-save hook; map core Violations to
+                      vscode.Diagnostic."
+     :exports ["registerValidateCommands"]
+     :est-lines 150}
+    {:module "commands/materialise-folder.ts"
+     :responsibility "Explorer context-menu command for folder materialisation:
+              invoke deterministic preflight, show unresolved diagnostics,
+              and hand ready plans to semantic generation stage."
+     :exports ["registerMaterialiseFolderCommand"]
+     :est-lines 220}
+    {:module "core-bridge.ts"
+     :responsibility "Thin adapter wrapping @conjurer/core for the extension:
+                      one place that constructs the SpecReader/SymbolIndex and
+                      hands them to providers/commands."
+     :exports ["createCoreBridge" "CoreBridge"]
+     :est-lines 110}
+    {:module "providers/status-bar.ts"
+     :responsibility "Foresight health status bar item: computeHealthIssues (pure, testable)
+                      over WorkspaceSnapshot + VS Code wiring for onDidChangeActiveTextEditor
+                      and the conjurer.showForesightHealth command."
+     :exports ["computeHealthIssues" "registerForesightStatusBar" "HealthIssue" "HealthIssueKind"]
+     :est-lines 120}
+    {:module "providers/folding.ts"
+     :responsibility "FoldingRangeProvider + foldHoistFormsOnOpen: collapse f/hoist forms
+                      and f/candidate :status :hoisted forms by default on first file open.
+                      computeHoistFoldRanges is pure (boundary scan, no vscode dependency)."
+     :exports ["computeHoistFoldRanges" "createFoldingProvider" "foldHoistFormsOnOpen" "FoldRange"]
+     :est-lines 70}])
+
+;;; As with the server, no module nears the limit. The largest (codelens.ts, ~200)
+;;; has ample headroom, and the single dist/extension.js is produced by esbuild —
+;;; not authored by hand.
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Section VII — VSIX enhancement candidates
+;;; All cluster :cluster-vsix. Scored on four dimensions, max 40.
+;;; ─────────────────────────────────────────────────────────────────
+
+(f/candidate :codelens-candidate-score
+  :label   "Score badge + status pill on f/candidate CodeLens"
+  :cluster :cluster-vsix
+  :added   "2026-06-10"
+  :status  :hoisted
+  :scores  {:feasibility 8 :elegance 9 :containment 9 :value 8}
+  :conditions ["Agree on the lens title format before coding — e.g. 'score: 33 · planned'
+                vs. '33 · planned · 1d' — the title is the user-facing contract and
+                changing it later is a visible churn for anyone already using the extension"]
+  :rationale "Every f/candidate form already gets a ✨ Refine lens from findFormOccurrences,
+              but it tells you nothing about the form's weight. The at-a-glance information an
+              author needs most is: total score, status, and how recent it is. A CodeLens reading
+              'score: 33 · planned · 1d ago' costs one regex to detect the f/candidate keyword,
+              one parse of the :scores map (already available via toCnjModel), and one line of
+              lens title construction — all pure, no I/O, and entirely inside codelens.ts.
+              The score computation is already in foresight.ts (totalScore). No new module needed.")
+
+(f/candidate :codelens-candidate-actions
+  :label   "Reassess + Hoist buttons on f/candidate CodeLens"
+  :cluster :cluster-vsix
+  :added   "2026-06-10"
+  :status  :proposed
+  :scores  {:feasibility 6 :elegance 8 :containment 7 :value 9}
+  :conditions ["codelens-candidate-score implemented first so the score is visible in
+                context when the action button appears"
+               "agree on the f/reassess insertion contract: insert a :history vector after
+                the existing :scores field in-place vs. append a standalone f/reassess block
+                after the closing paren — both are valid EDN but the file diff differs"]
+  :rationale "The current workflow to reassess a candidate requires manually editing the
+              .cnj file: find the form, update :scores, append a :history vector with the
+              f/reassess sub-form, write the rationale, get the indentation right. That is
+              friction that compounds with every iteration. A '📊 Reassess' CodeLens button
+              above each active f/candidate opens a multi-step VS Code input box (score per
+              dimension → rationale text), computes the new total, and inserts the f/reassess
+              form via WorkspaceEdit. A conditional '⬆ Hoist' button appears when status is
+              :planned and score ≥ 28 — same pattern: dialog collects :into binding + note,
+              inserts f/hoist, updates :status to :hoisted. Containment is 7 because the
+              command registration touches both a new command handler and codelens.ts.")
+
+(f/candidate :disk-lint-decorations
+  :label   "Inline disk-consistency state per target (gutter + hover)"
+  :cluster :cluster-vsix
+  :added   "2026-06-10"
+  :status  :proposed
+  :scores  {:feasibility 7 :elegance 8 :containment 7 :value 8}
+  :conditions ["agree on decoration update cadence: on-save with debounce (nicer UX,
+                requires onDidSaveTextDocument listener) vs. on-demand via a 'Check disk'
+                CodeLens (zero background work, but manual) — cadence drives the module
+                shape"
+               "lint_disk_consistency stable with suffix matching confirmed on real
+                workspace (already done this session)"]
+  :rationale "When a .cnj file is open, there is no visual signal about whether the declared
+              :modules in each target actually exist on disk — the author must run a tool or
+              read the file system manually. TextEditorDecorationType gutter icons give the
+              answer at one glance: a green ✓ beside each target block when all modules are
+              found, a red ✗ with the missing-count when they are not. Hovering the icon
+              shows the missing module names verbatim (sourced from lint_disk_consistency
+              output). The check runs via the core bridge (same lint logic, no network hop)
+              after each save. A new providers/disk-lint.ts module holds the decoration
+              type definitions and the update function; codelens.ts is unchanged.")
+
+(f/candidate :candidate-lifecycle-gutter
+  :label   "Lifecycle-status gutter dots per f/candidate line"
+  :cluster :cluster-vsix
+  :added   "2026-06-10"
+  :status  :proposed
+  :scores  {:feasibility 8 :elegance 8 :containment 8 :value 7}
+  :conditions ["Decide icon representation before building: VS Code gutter icons require
+                either an SVG asset file (gutterIconPath) or a unicode character as a
+                decoration letter — agree on which so the right assets or font choices
+                are prepared (SVG is sharper; unicode needs no extra files)"]
+  :rationale "A .cnj file with fifteen candidates is visually uniform — all the same text
+              colour, no lifecycle signal until you read the :status keyword on each form.
+              A coloured gutter dot beside the opening line of each f/candidate makes lifecycle
+              state scannable in the same way git gutter decorations make change state scannable:
+              orange = :proposed, blue = :planned, green = :hoisted, grey = :abandoned.
+              f/reassess sub-forms get a small 'trajectory' marker (↑ or ↓ based on score
+              delta vs. the base). The entire feature is two TextEditorDecorationType
+              registrations in a new providers/candidate-gutter.ts and a pass over the
+              parsed model — no command, no I/O, pure decoration.")
+
+(f/candidate :foresight-health-statusbar
+  :label   "Workspace foresight-health badge in VS Code status bar"
+  :cluster :cluster-vsix
+  :added   "2026-06-10"
+  :status  :hoisted
+  :scores  {:feasibility 9 :elegance 9 :containment 9 :value 7}
+  :conditions ["Decide update trigger before building: file-open only (cheapest),
+                file-save (responsive), or a workspace FileSystemWatcher (live but adds
+                a background path) — the trigger determines whether status-bar.ts needs
+                a watcher or just an onDidChangeActiveTextEditor listener"]
+  :rationale "lens_foresight_health reports stale candidates, thin rationale, orphaned
+              hoists, and high-score/no-conditions gaps — but today those diagnostics only
+              surface when you explicitly invoke the MCP tool. A status bar item costs
+              three lines to register and one background evaluation on file-open: when any
+              .cnj file is active it shows '✓ backlog healthy' (green) or '⚠ 3 foresight
+              issues' (amber). Clicking opens a VS Code Quick Pick listing each issue with
+              a jump-to-line action. The evaluation runs the same logic as the MCP tool via
+              the core bridge — no additional server dependency. Containment is 9 because
+              it is self-contained in a single status-bar.ts module and touches nothing else.")
+
+(f/candidate :validate-on-save
+  :label   "Auto-validate .cnj on save with squiggle diagnostics"
+  :cluster :cluster-vsix
+  :added   "2026-06-10"
+  :status  :hoisted
+  :scores  {:feasibility 8 :elegance 8 :containment 8 :value 8}
+  :conditions ["settle debounce strategy: validate on every save vs. only when the file
+                content hash has changed since the last validation result — the latter
+                avoids redundant work on rapid-fire saves but requires caching the hash"]
+  :rationale "The validate command exists but it is manual — the author must invoke it to
+              see violations. The design's :open question asks exactly this: live vs. on-demand.
+              Resolving it in favour of on-save (debounced, 300 ms) gives the familiar TypeScript
+              experience: save, see squiggles, fix, repeat. The implementation is an
+              onDidSaveTextDocument listener in commands/validate.ts that calls the existing
+              handleValidate logic, maps Violation records to vscode.Diagnostic, and pushes
+              them to a DiagnosticCollection. The debounce guard prevents hammering on
+              ctrl+s workflows. This also resolves the charter :open question explicitly —
+              recording the decision in the charter.")
+
+(f/candidate :charter-ref-lens
+  :label   "Reference-health summary in charter CodeLens"
+  :cluster :cluster-vsix
+  :added   "2026-06-10"
+  :status  :proposed
+  :scores  {:feasibility 8 :elegance 8 :containment 8 :value 7}
+  :conditions ["Decide display policy for charters with zero :references before coding:
+                show '0 references' (informative), show nothing (cleaner), or suppress
+                the lens entirely — each choice has different UX implications for
+                single-file projects vs. multi-file workspaces"]
+  :rationale "The charter CodeLens currently offers three actions but none of them tell you
+              at a glance how many of the charter's :references are resolvable. Adding a
+              lens reading '3/3 references resolved' (green) or '1 broken reference' (amber)
+              costs one existsSync pass over doc.charter.references — work already done in
+              handleValidate. When broken, the lens becomes a click-to-open action navigating
+              to the offending reference path. This gives the author the same at-a-glance
+              signal that lint_disk_consistency provides for modules, but surfaced directly
+              in the charter CodeLens row without a separate tool invocation.")
+
+;; ── Hoisted candidates: implemented 2026-06-10 ───────────────────────────────
+
+(f/hoist :of :validate-on-save
+  :date     "2026-06-10"
+  :into     :charter-decision/validate-on-save-2026-06-10
+  :outcomes [:on-save-diagnostics :open-question-resolved :squiggles-in-problems-panel]
+  :note     "Already present in commands/validate.ts (onDidSaveTextDocument listener)
+             before this session. Resolves the :open question about live vs on-demand
+             validation. No debounce was needed at the save event boundary.")
+
+(f/hoist :of :codelens-candidate-score
+  :date     "2026-06-10"
+  :into     :charter-decision/codelens-candidate-score-2026-06-10
+  :outcomes [:candidate-score-badge :showCandidateDetails-command :findCandidateOccurrences-export]
+  :note     "Condition met: format decided as 'score: N · status'. Lazy parse — toCnjModel
+             called only when f/candidate lines are detected. Tests added to codelens.spec.ts.")
+
+(f/hoist :of :foresight-health-statusbar
+  :date     "2026-06-10"
+  :into     :charter-decision/foresight-health-statusbar-2026-06-10
+  :outcomes [:status-bar-item :showForesightHealth-command :computeHealthIssues-export :status-bar-spec]
+  :note     "Condition met: trigger decided as onDidChangeActiveTextEditor (file-open only).
+             computeHealthIssues is pure over WorkspaceSnapshot — fully unit-testable without
+             mocks. providers/status-bar.ts added to target module list.")

@@ -1,0 +1,144 @@
+;; Sets interaction and composition principles so route growth does not collapse
+;; into a monolithic UI shell.
+(charter "Conjurer Demo Website — Frontend"
+  :version    "0.3.0"
+  :created    "2025-11-06"
+  :updated    "2025-11-06"
+  :domain     "React SPA; Conjurer grimoire browser; interactive playground"
+
+  :decisions  [
+    {:date "2025-11-06"
+     :decision "One component file per route, never one giant App.tsx.
+                Each route lives in routes/{name}/{Name}Page.tsx.
+                Shared display components in packages/ui, not in apps/web/src."}
+    {:date "2025-11-06"
+     :decision "React Query for all server state. No useState for async data."}
+    {:date "2025-11-06"
+     :decision "Shiki for code highlighting — must handle Clojure syntax for .cnj."}
+    {:date "2025-11-06"
+     :decision "Feature flag PLAYGROUND_ENABLED in src/flags.ts.
+                Default true in prod, true in dev."}]
+
+  :open       [
+    "Dark mode: system preference or toggle or both?"
+    "Grimoire content: serve .md directly or pre-parsed EDN via API?"]
+
+  :references ["domain.cnj"]
+  :outputs    {
+    :ui-package (target :ui-pkg
+                  :language  :typescript
+                  :framework :react
+                  :standard  :tsfpp
+                  :produces  [:component-library])
+    :web-app    (target :web-app
+                  :language  :typescript
+                  :framework :react
+                  :standard  :tsfpp
+                  :produces  [:spa])})
+
+;; Separates reusable presentation primitives from route logic to prevent coupling
+;; between app features and UI atoms.
+(target :ui-pkg
+  :language  :typescript
+  :framework :react
+  :standard  :tsfpp
+  :produces  [:component-library]
+  :scope     [:grimoire :symbol]
+  :from      conjurer-site-domain
+  :notes "
+    packages/ui/src/
+    ├── ConjurerCode/            syntax-highlighted .cnj / Clojure code block
+    │   ├── ConjurerCode.tsx     wraps Shiki; accepts code + language prop
+    │   └── ConjurerCode.test.tsx
+    ├── GrimoireCard/            summary card for browse grid
+    │   ├── GrimoireCard.tsx
+    │   └── GrimoireCard.test.tsx
+    ├── SymbolCard/              symbol detail with synopsis + key params
+    │   ├── SymbolCard.tsx
+    │   └── SymbolCard.test.tsx
+    ├── SearchBar/               controlled search with 300ms debounce
+    │   ├── SearchBar.tsx
+    │   └── SearchBar.test.tsx
+    └── InvocationExample/       live example: code + explanation side by side
+        ├── InvocationExample.tsx
+        └── InvocationExample.test.tsx
+
+    All components: named exports, no default exports.
+    Props typed explicitly — no inferred prop types from usage.
+    Accessibility: every interactive element keyboard-operable, WCAG AA minimum.")
+
+;; Frames first-visit narrative structure to optimize comprehension before users enter
+;; deeper product flows.
+(target :home-page
+  :language  :typescript
+  :framework :react
+  :standard  :tsfpp
+  :produces  [:react-component]
+  :notes "
+    apps/web/src/routes/home/
+    ├── HomePage.tsx             orchestrates sections; no logic
+    └── sections/
+        ├── HeroSection.tsx      Bosch image, Marlowe epigraph, primary CTA
+        ├── WhatIsSection.tsx    296-char description + 3 code examples
+        ├── GrimoireHighlights.tsx  cards for 3 featured grimoires (domain, reasoning, agent)
+        ├── PlaygroundTeaser.tsx    single live example + link to /playground
+        └── GetStartedSection.tsx   SKILL install, mcp.json snippet, IDE links
+
+    Constraint: no section component exceeds 80 lines.
+    HomePage.tsx itself contains only layout and section composition.
+    All data fetching: useGrimoires() hook in hooks/useGrimoires.ts (React Query).
+    Bosch image: public/conjurer-painting.jpg, lazy loaded with aspect-ratio box.
+    Marlowe epigraph rendered in <blockquote> with semantic cite element.")
+
+;; Specifies browse-and-discover behavior where taxonomy and search must coexist without
+;; competing interaction models.
+(target :grimoires-page
+  :language  :typescript
+  :framework :react
+  :standard  :tsfpp
+  :produces  [:react-component]
+  :notes "
+    apps/web/src/routes/grimoires/
+    ├── GrimoiresPage.tsx        grid of all 10 grimoires; filter by capability
+    └── GrimoirePage.tsx         single grimoire: description + symbol list
+
+    GrimoiresPage:
+    - Capability filter tabs from grimoire-capability-taxonomy
+      (knowledge-work / construction / coordination)
+    - GrimoireCard per grimoire, 3-column grid on desktop
+    - Search bar filters across name + description
+    - URL: /grimoires, /grimoires?capability=knowledge-work
+
+    GrimoirePage:
+    - Route param :name → fetch /api/grimoires/:name
+    - Symbol list grouped by construct group
+    - SymbolCard per symbol with synopsis + key params
+    - 'Copy invocation' button — copies basic invocation skeleton
+    - URL: /grimoires/reasoning, /grimoires/domain etc.")
+
+;; Defines the high-feedback editing loop where latency, error clarity, and keyboard
+;; flow determine usability.
+(target :playground-page
+  :language  :typescript
+  :framework :react
+  :standard  :tsfpp
+  :produces  [:react-component]
+  :notes "
+    apps/web/src/routes/playground/
+    └── PlaygroundPage.tsx
+
+    Layout: two-column on desktop, stacked on mobile.
+    Left: CodeMirror editor configured for Clojure syntax (.cnj files)
+    Right: interpretation result panel
+
+    Interaction:
+    - User types or pastes Conjurer invocations
+    - 'Interpret' button or Shift+Enter submits to POST /api/playground
+    - Response renders: interpretation text + constructs-used chips + open-questions list
+    - Loading state: spinner + 'Conjuring...' message
+    - Error state: RFC 7807 error rendered as friendly message
+    - Feature flag: PLAYGROUND_ENABLED — if false, shows 'Coming soon' banner
+
+    Gated behind PLAYGROUND_ENABLED feature flag (src/flags.ts).
+    Rate limit feedback: 429 response renders 'Too many requests — try again in N seconds'
+    extracted from Retry-After header.")

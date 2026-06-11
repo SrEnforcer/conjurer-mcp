@@ -1,0 +1,89 @@
+{
+  "name": "conjurer-mcp",
+  "displayName": "Conjurer",
+  "description": "Inline spec access for .cnj authors — hover docs, CodeLens, validation, and folder materialisation.",
+  "version": "0.1.0",
+  "publisher": "conjurer",
+  "categories": [
+    "Other"
+  ],
+  "type": "module",
+  "main": "./dist/extension.js",
+  "engines": {
+    "node": ">=18.0.0",
+    "vscode": "^1.100.0"
+  },
+  "activationEvents": [
+    "onLanguage:edn",
+    "workspaceContains:**/*.cnj"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "conjurer.lookupSymbol",
+        "title": "Conjurer: Look up symbol"
+      },
+      {
+        "command": "conjurer.searchSymbols",
+        "title": "Conjurer: Search symbols"
+      },
+      {
+        "command": "conjurer.validateCnj",
+        "title": "Conjurer: Validate current .cnj"
+      },
+      {
+        "command": "conjurer.showOpen",
+        "title": "Conjurer: Show open questions"
+      },
+      {
+        "command": "conjurer.materialiseFolder",
+        "title": "Conjurer: Materialise folder"
+      },
+      {
+        "command": "conjurer.refineForm",
+        "title": "Conjurer: Refine form with AI"
+      },
+      {
+        "command": "conjurer.resolveOpenQuestions",
+        "title": "Conjurer: Resolve open questions with AI"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "conjurer.materialiseFolder",
+          "when": "explorerResourceIsFolder",
+          "group": "conjurer@1"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "pnpm run build:prod",
+    "build:dev": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --platform=node --format=esm --target=node18",
+    "build:prod": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --platform=node --format=esm --target=node18 --minify",
+    "package": "pnpm run build:prod && vsce package --no-dependencies",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@conjurer/core": "workspace:*",
+    "@tsfpp/prelude": "^1.7.0",
+    "vite": "^8.0.16"
+  },
+  "devDependencies": {
+    "@tsfpp/eslint-config": "^1.0.1",
+    "@tsfpp/standard": "^1.3.0",
+    "@tsfpp/tsconfig": "^1.0.0",
+    "@types/node": "^20.19.41",
+    "@types/vscode": "^1.100.0",
+    "@typescript-eslint/eslint-plugin": "^8.60.0",
+    "@typescript-eslint/parser": "^8.60.0",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.28.0",
+    "eslint": "^10.4.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.7"
+  }
+}

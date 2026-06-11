@@ -1,0 +1,65 @@
+import type { Result } from '@tsfpp/prelude';
+export type TokenType = 'lparen' | 'rparen' | 'lbracket' | 'rbracket' | 'lbrace' | 'rbrace' | 'symbol' | 'keyword' | 'string' | 'number' | 'boolean' | 'nil' | 'eof';
+export type Token = {
+    readonly type: TokenType;
+    readonly value: string;
+    readonly line: number;
+    readonly column: number;
+};
+export type ParseError = {
+    readonly kind: 'ParseError';
+    readonly message: string;
+    readonly line: number;
+    readonly column: number;
+};
+export type EdnList = {
+    readonly type: 'list';
+    readonly elements: ReadonlyArray<EdnNode>;
+    readonly line: number;
+    readonly column: number;
+};
+export type EdnMap = {
+    readonly type: 'map';
+    readonly entries: ReadonlyMap<string, EdnNode>;
+    readonly line: number;
+    readonly column: number;
+};
+export type EdnKeyword = {
+    readonly type: 'keyword';
+    readonly value: string;
+    readonly line: number;
+    readonly column: number;
+};
+export type EdnSymbol = {
+    readonly type: 'symbol';
+    readonly value: string;
+    readonly line: number;
+    readonly column: number;
+};
+export type EdnString = {
+    readonly type: 'string';
+    readonly value: string;
+    readonly line: number;
+    readonly column: number;
+};
+export type EdnNumber = {
+    readonly type: 'number';
+    readonly value: number;
+    readonly line: number;
+    readonly column: number;
+};
+export type EdnBoolean = {
+    readonly type: 'boolean';
+    readonly value: boolean;
+    readonly line: number;
+    readonly column: number;
+};
+export type EdnNil = {
+    readonly type: 'nil';
+    readonly line: number;
+    readonly column: number;
+};
+export type EdnNode = EdnList | EdnMap | EdnKeyword | EdnSymbol | EdnString | EdnNumber | EdnBoolean | EdnNil;
+export declare const tokenize: (input: string) => Result<ReadonlyArray<Token>, ParseError>;
+export declare const parse: (input: string) => Result<ReadonlyArray<EdnNode>, ParseError>;
+//# sourceMappingURL=edn-parser.d.ts.map

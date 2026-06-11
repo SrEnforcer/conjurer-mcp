@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    // ── Output (application bundle — bundler handles emit) ────────────────────
+    "noEmit": true,
+
+    // ── Test files included for type-checking ─────────────────────────────────
+    "types": ["node"]
+  },
+  "exclude": [
+    "dist",
+    "node_modules"
+  ]
+}

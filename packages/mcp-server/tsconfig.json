@@ -1,0 +1,10 @@
+{
+  "extends": "@tsfpp/tsconfig/app",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../shared-core" }
+  ]
+}

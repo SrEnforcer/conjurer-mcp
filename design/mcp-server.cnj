@@ -1,0 +1,952 @@
+;;; mcp-server.cnj
+;;; The stdio MCP server and the shared core it is built on.
+;;; References the project anchor for charter, assets, and assumptions.
+;;; This file holds: the full tool contracts (Section V — domain work) and the
+;;; module decomposition for both @conjurer/core and the server (Section VI).
+;;; 22 tools across five clusters (A retrieval, B parsing/diff, C validation,
+;;; D project-aware planning, F foresight) plus conjurer:// grimoire resources.
+
+(charter "Conjurer MCP Server"
+  :version  "0.2.0"
+  :created  "2026-06-05"
+  :updated  "2026-06-10"
+  :domain   "A deterministic stdio MCP server exposing retrieval, parsing, and
+             validation tools over the Conjurer specification, built on a shared
+             TypeScript core."
+  :language :en
+  :goals [
+    "Expose the full retrieval surface (Cluster A, 8 tools): targeted symbol
+     lookup, keyword search, section-level grimoire access, example extraction,
+     grimoire listing, symbol-coverage reporting, symbol tracing, and form
+     explanation — each returning only what was asked for."
+    "Expose parsing and semantic-diff tools (Cluster B, 3 tools): structured .cnj
+     AST, charter field extraction, and structured diff between two .cnj snapshots
+     (goals, decisions, targets, assets) without raw EDN scanning."
+    "Expose .cnj validation (Cluster C, 1 tool) with :authored and :recovered modes,
+     intent-topology checks, symbol-usage validation, and reference-resolution checks."
+    "Preserve project-aware deterministic orchestration (Cluster D, 7 tools):
+     dependency graphing, resolve/evaluate planning, context fingerprinting, cache
+     hits for unchanged inputs, stale-artifact surfacing, workspace lens views
+     (dependency graph, open questions, structural summary) — all as structured
+     diagnostics."
+    "Support foresight-cluster tools (Cluster F, 3 tools): candidate backlog triage
+     ranked by score and cluster affinity, pre-hoist briefing with verbatim
+     conditions, and semantic backlog diff keyed by stable :id distinguishing
+     graduation from removal."
+    "Expose conjurer://grimoire/<name> as MCP protocol resources for IDE
+     browsability alongside the tool surface; read-only, delegates to spec-reader."
+    "Keep every module within the TSF++ size limit; decompose the prior
+     monolith into single-responsibility modules."]
+  :audience {:primary :senior-engineer}
+  :decisions [
+    {:date "2026-06-05"
+     :decision "Tool results return structured content where the agent benefits
+                from structure (symbol records, validation reports) and plain
+                markdown where the agent wants prose (rationale, examples).
+                Each tool declares which, in its :returns below."}
+    {:date "2026-06-05"
+     :decision "The shared core is split into five modules by responsibility —
+                edn-parser, spec-reader, symbol-index, cnj-model, validation —
+                each well under 400 lines. The prior 4000-line index.ts is
+                explicitly decomposed, not ported."}
+    {:date "2026-06-06"
+     :decision "No embedded LLM in the server for now. The server remains
+                deterministic/mechanical (parse, resolve, cache, validate, route).
+                Generative and judgement-heavy work (materialise/exhume reasoning)
+                remains with the local IDE LLM."}
+    {:date "2026-06-06"
+     :decision "Local-first portability remains explicit: the deterministic MCP
+                layer is editor-agnostic and stable, while the semantic layer is
+                the swappable local IDE LLM client."}
+    {:date "2026-06-06"
+     :decision "Materialisation preflight logic is implemented in shared core as
+                a pure resolver module reused by both server tools and VSIX
+                commands. The MCP tool is a transport wrapper over the same
+                deterministic preflight report to prevent divergence."}
+    {:date "2026-06-09"
+     :decision "MCP grimoire resources added (D4, previously open). Expose
+                conjurer://grimoire/<name> as MCP protocol resources alongside
+                the tool surface. Tools already handle targeted retrieval;
+                resources add browsability — the IDE can list all available
+                grimoires and fetch a full grimoire file without constructing
+                a tool call. A new resources.ts module handles registration
+                (list + read). Scope is read-only; no new core logic required."}
+    {:date "2026-06-09"
+     :decision "check_symbol_coverage added as Cluster-A tool (the sixth
+                retrieval tool). Given a .cnj file, it returns per-grimoire
+                coverage: which symbols the file references, which it does not,
+                and a utilisation count. Pure set-intersection over symbol-index
+                (already in memory) and a cnj-model parse; no new infrastructure.
+                This is the 'did you use the spec well?' lens."}
+    {:date "2026-06-09"
+     :decision "Intent topology validation recovered from the prior codebase and
+                added as new :checks in the validate_cnj spell. The legacy
+                intent-topology.ts (169 lines) validated :requires/:prefers/
+                :deferred/:manifest consistency within forms that carry those
+                fields. The three rules: (a) every :requires item must appear in
+                :manifest, (b) no :deferred item may appear in :manifest, (c)
+                no item may be both :requires and :deferred. These are added to
+                validation.ts as three new ValidationRule functions alongside
+                the existing structural checks. :authored mode enforces all
+                three; :recovered mode relaxes (b) and (c) only."}
+    {:date "2026-06-09"
+     :decision "Workspace state is stateful and process-local. The server keeps an
+                in-memory target dependency graph and context-key cache for the
+                lifetime of the stdio session. No disk persistence (unlike the
+                legacy's evaluate-sessions.json). The decision tree: stateless
+                breaks evaluate entirely (no persistent cache = no cache-hit
+                detection); fully stateful with disk persistence adds complexity
+                that a solo interactive stdio tool does not need; process-local
+                in-memory is the right midpoint. File content is read on each
+                resolve call; the snapshot (parsed docs + target DAG) is rebuilt
+                from scratch each call so no mtime bookkeeping is needed for v1.
+                A new workspace-state.ts module in shared-core provides the pure
+                computational core: charter :references discovery (one level),
+                target-level DAG from :from fields, topological sort, context-key
+                computation (SHA-256 of all transitive file contents). The mutable
+                evaluate cache (a Map from file path → prior cache key) lives in
+                tools/project.ts as a module-level DEVIATION, not in shared-core.
+                Charter :references is added to the Charter model (it was in the
+                spec but not extracted by parseCharter)."}
+    {:date "2026-06-09"
+     :decision "lens_open_questions added as a Cluster-D tool. Pure fold over
+                charter.open arrays in the workspace snapshot; only files with
+                at least one open question appear in the output. Returns
+                total_open (aggregate count) and total_files_scanned (scope).
+                Implemented in tools/project.ts alongside workspace_summary."}
+    {:date "2026-06-09"
+     :decision "workspace_summary added as a Cluster-D tool. A single call that
+                folds over the workspace snapshot and returns per-file stats
+                (title, version, target count, decision count, open-question
+                count, valid flag, violation count) plus workspace totals.
+                Backed by workspace-state + validateCnj (already in core);
+                no new infrastructure. Replaces the current multi-call pattern
+                of resolve + validate x N + read_charter x N. Coverage pct
+                deliberately omitted — it requires the spec index and is
+                already served by check_symbol_coverage. This tool stays pure
+                structural; cross-cluster dependencies would break the seam.
+                Implemented in tools/project.ts alongside the other Cluster-D
+                handlers."}
+    {:date "2026-06-09"
+     :decision "explain_form added as a Cluster-A retrieval tool (the eighth).
+                Given a .cnj file and a form name, returns a rich explanation:
+                the form's type and fields from the model, each Conjurer symbol
+                it references (looked up against the index with synopsis), and
+                which validation rules nominally apply to its form type. The
+                primary value is the symbol lookups — without this tool the
+                agent has to call trace_symbol + lookup_symbol in a loop for
+                every reference in the form. Implemented in tools/retrieval.ts
+                using the existing visitNode symbol extraction (already present
+                for check_symbol_coverage and trace_symbol). The form is located
+                by scanning the top-level EDN nodes for a list whose head symbol
+                or second element matches the supplied name. Returns a partial
+                match if the form exists but has no symbol references. Honest
+                about forms not found."}
+    {:date "2026-06-09"
+     :decision "diff_cnj added as a Cluster-B tool. Accepts two .cnj paths and
+                returns a structured semantic diff of their model fields: charter
+                scalar changes (title, version), goals/open/decisions/references
+                as array diffs (added/removed), and target/asset name-level diffs.
+                Pure function over two CnjDocument values — no workspace state,
+                no spec lookup. Decisions are diffed by their serialized JSON
+                fingerprint (date + decision text) since they have no stable ID.
+                Output includes a summary (has_changes: bool, change_count: int)
+                for cheap polling by the agent. Implemented in a new tools/diff.ts
+                module (does not belong in tools/parse.ts, which handles parse and
+                charter reading; diff is a separate concern). Registered via
+                registerDiffTools in server.ts."}
+    {:date "2026-06-09"
+     :decision "trace_symbol added as a Cluster-A retrieval tool (the seventh).
+                Conceptually the inverse of check_symbol_coverage: given a symbol
+                name, return which .cnj files in a workspace reference it and how
+                many times. Uses buildWorkspaceSnapshot (already in core) for
+                multi-file discovery. The per-file scan reuses visitNode (already
+                in retrieval.ts for check_symbol_coverage) extended to count
+                occurrences rather than deduplicate. Output includes known_symbol
+                (looked up against the index) so the agent can distinguish a
+                missing symbol from one that is simply unused. Implemented in
+                tools/retrieval.ts alongside check_symbol_coverage, not in
+                project.ts, because the primary input/output axis is spec-symbol
+                → workspace references, not workspace → DAG. The file parameter
+                is the workspace entry .cnj whose charter :references chain
+                determines the discovery scope."}
+    {:date "2026-06-09"
+     :decision "lens_dependency_graph added as a Cluster-D tool. Now that
+                workspace-state.ts provides the full cross-file target DAG,
+                exposing it directly as a queryable tool is nearly free: no new
+                computation, just a shaped view of the snapshot. The tool returns
+                nodes (targets + source file), directed edges (from=dependency,
+                to=dependent), topological order, cycle flag, and a by_file
+                grouping. An optional :target filter narrows the result to the
+                subgraph reachable from that target (BFS over :from edges). This
+                gives the agent a first-class data structure to reason over instead
+                of having to reconstruct the graph from cross-file :from fields.
+                Implemented in tools/project.ts alongside the other Cluster-D
+                handlers — no new module needed since the logic is a thin view
+                over buildWorkspaceSnapshot."}
+    {:date "2026-06-09"
+     :decision "spec-source-resolution fixed as deterministic precedence with
+                first valid match: --spec CLI flag, then CONJURER_SPEC_PATH env
+                var, then workspace config file, then upward directory search.
+                The resolved canonical spec path and winning source are surfaced
+                in diagnostics for reproducibility and debuggability."}
+    {:date "2026-06-09"
+     :decision "get_grimoire_section supports both stable section id and heading
+                text selectors. Stable id is canonical; heading text is a
+                convenience alias resolved to id. If heading resolution is
+                ambiguous, the tool returns a structured ambiguity diagnostic
+                with candidate ids/headings and does not guess."}
+    {:date "2026-06-09"
+     :decision "validate_symbol_usage (Phase 1 of v2 validation depth) implemented
+                and wired into validate_cnj. The 'referenced symbols exist in
+                index.edn' check listed in the validate_cnj spell's :checks is now
+                active when a SymbolIndex is present. collectSymbolRefs moved from
+                tools/retrieval.ts to @conjurer/core (symbol-index.ts) — single
+                canonical implementation consumed by both retrieval and validation.
+                Severity is :warning (not :error) to accommodate false positives from
+                built-in form-type names that are not catalogued in the spec index.
+                validate_cnj accepts optional { index, symbolRefs } — backward
+                compatible; existing callers without an index are unaffected."}
+    {:date "2026-06-09"
+     :decision "check_references (Phase 2 of v2 validation depth) implemented and
+                wired into validate_cnj. The 'every :references target resolves to a
+                readable file' check listed in the validate_cnj spell's :checks is
+                now active unconditionally — handleValidate always pre-computes
+                referencesStatus by resolving each charter :references path against
+                dirname(sourceFile) and calling existsSync. Severity is :error
+                (unlike symbol-usage warnings) because a missing reference is an
+                unambiguous structural gap. isDefined from @tsfpp/prelude used for
+                all guard conditions. 328/328 tests pass, build clean."}
+    {:date "2026-06-09"
+     :decision "lint_conventions (Phase 3 of v2 validation depth) implemented.
+                lintConventions exported from @conjurer/core; called unconditionally
+                inside validateCnj. Rules: decisions-entry-shape, decisions-date-
+                format, decisions-chronological-order, target-has-language. All
+                warning severity — no change to validate_cnj tool output shape or
+                valid semantics for non-strict callers. No new wiring needed in
+                server.ts or handleValidate; pure function over CnjDocument.
+                358/358 tests pass, build clean. v2 validation depth complete."}
+    {:date "2026-06-10"
+     :decision "list_candidates implemented as a new Cluster-D foresight tool.
+                CnjDocument gains a candidates field (ReadonlyArray<CnjCandidateForm>)
+                and toCnjModel now extracts f/candidate forms — intercepted before
+                parseDomainForm so they do not pollute domainForms. getScores parses
+                the nested EDN map to ReadonlyMap<string,number>. Tool groups candidates
+                by :cluster, sorts within each cluster by descending total score, orders
+                clusters by highest total; status filter defaults to excluding hoisted
+                and abandoned. New tools/foresight.ts module (~120 lines);
+                registerForesightTools wired in server.ts. 386/386 tests pass."}
+    {:date "2026-06-10"
+     :decision "CnjReassessment and CnjHoist added as first-class model types (the
+                foundational layer for all five foresight-cluster tools). CnjCandidateForm
+                gains history: ReadonlyArray<CnjReassessment>; CnjDocument gains
+                hoists: ReadonlyArray<CnjHoist>. parseReassess extracts f/reassess
+                entries from nested :history lists; parseHoist extracts top-level
+                f/hoist forms. Both use kvMap(elems, 1) + getStr(kv, 'of') since
+                ':of IDENTIFIER' is syntactic positioning, not a positional argument.
+                Both types exported from @conjurer/core. 14 new tests (cnj-model.spec.ts)."}
+    {:date "2026-06-10"
+     :decision "lens_hoist_readiness added as a foresight-cluster tool (Cluster-F).
+                Pure fold over workspace candidates filtered to active statuses
+                (proposed/planned) with total score >= min_score (default 28). Returns
+                structured pre-decision briefing: candidates ranked by total score,
+                conditions verbatim, days_since_added, has_reassessment (history.length
+                > 0), plus workspace stats (total_active, median_total_score,
+                candidates_with_reassessment). Implements the foresight→r/decide handoff
+                explicitly: the agent gets structure without the server claiming to know
+                if conditions are met. Handler in tools/foresight.ts. 416/416 tests pass."}
+    {:date "2026-06-10"
+     :decision "diff_candidates added as a Cluster-B tool (alongside diff_cnj in
+                tools/diff.ts). Semantic backlog diff between two .cnj snapshots keyed
+                by stable :id. Returns: added (in B not A), removed (in A not B and
+                not hoisted), status_changes (present in both, status differs),
+                score_changes (present in both, any dimension score changed),
+                hoisted (in A, f/hoist :of match in B). The hoisted category
+                distinguishes graduation from removal — a candidate that became a
+                decision is structurally different from one that was dropped.
+                summary.graduation_count surfaces the count explicitly. 416/416 tests pass."}
+    {:date "2026-06-10"
+     :decision "lint_disk_consistency implemented as a new Cluster-C tool (planned status resolved).
+                Pure I/O check: for each target's :modules entries, search the filesystem under
+                a configurable root (default: dirname of the .cnj path) for a file matching the
+                declared module name — excluding node_modules, dist, .git, coverage, .turbo.
+                For charter :references, resolve each path against dirname and check existsSync.
+                Returns structured result: consistent bool, issue_count, modules{declared, found,
+                missing[{target, module}]}, references{declared, found, missing[{ref, resolved_to}]}.
+                Implemented in tools/validate.ts alongside validate_cnj (same validation cluster).
+                Search uses readdirSync with recursive:true (Node 18.17+ / @types/node 20).
+                Pure — no workspace state or spec lookup. Deferral resolved: workspace-state.ts
+                is in production; the filesystem walk pattern is established."}
+    {:date "2026-06-10"
+     :decision "lens_foresight_health implemented as a new Cluster-F tool (planned status resolved).
+                Five pure diagnostic checks over workspace candidates and hoists:
+                (1) stale_candidates — active, no f/reassess history, days_since_added > stale_days (default 30);
+                (2) thin_rationale — active, rationale.length < min_rationale_length (default 20);
+                (3) orphaned_hoists — f/hoist whose :of has no matching f/candidate :id in workspace;
+                (4) high_score_no_conditions — active, total_score >= high_score_threshold (default 30),
+                    conditions empty (the 'vague later' gap the grimoire names by name);
+                (5) lifecycle_distribution — counts per :status across all candidates (health metric
+                    for graveyard detection). Thresholds are all optional params with documented
+                    defaults. Returns consistent bool, issue_count, one list per check, totals.
+                CnjReassessment and CnjHoist model types were prerequisites — both already landed
+                (2026-06-10 model decisions). Backlog has 12 candidates, satisfying the ≥8 condition.
+                Implemented in tools/foresight.ts alongside list_candidates and lens_hoist_readiness."}]
+  :open []
+  :decided [
+    "conjurer://grimoire/<name> MCP resources: yes (2026-06-09 decision above)."]
+  :outputs {
+    :tool-contracts :conjurer-only
+    :shared-core    (target :typescript :standard :tsf-plus-plus)
+    :mcp-server     (target :typescript :standard :tsf-plus-plus)}
+  :references ["conjurer-mcp.cnj"]
+  :tags [:mcp :server :typescript])
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Section V — Domain work: the v1 tool contracts
+;;; ─────────────────────────────────────────────────────────────────
+;;; Each tool is modelled as a Conjurer spell: its input schema, what it returns,
+;;; which core module backs it, and its determinism guarantee. These stay as
+;;; :conjurer-only specification — they are the contract the TypeScript implements.
+
+;;; ── Cluster A: Retrieval ──
+
+(spell lookup-symbol
+  :tool-name   "lookup_symbol"
+  :purpose     "Return one construct's full record without loading its grimoire file"
+  :accepts     {:symbol  "string — exact symbol name, e.g. \"w/prototype\""
+                :include "optional [:signature :params :rationale :examples] —
+                          defaults to all"}
+  :returns     {:format :structured
+                :shape  {:symbol :string :grimoire :string :namespace :string
+                         :synopsis :string :key-params [:keyword]
+                         :signature :string :rationale :markdown
+                         :examples [:code-block]}}
+  :backed-by   :symbol-index   ;; index.edn lookup, then lazy grimoire fetch for depth
+  :determinism :pure
+  :token-note  "Replaces 'read the whole grimoire to find one construct' with a
+                single record. The highest-value retrieval tool.")
+
+(spell search-symbols
+  :tool-name   "search_symbols"
+  :purpose     "Find candidate symbols by keyword across synopses and key-params"
+  :accepts     {:query     "string — free text, e.g. \"classify data fields\""
+                :grimoire  "optional string — restrict to one grimoire"
+                :limit     "optional int — default 10"}
+  :returns     {:format :structured
+                :shape  [{:symbol :string :grimoire :string :synopsis :string
+                          :score :number}]}
+  :backed-by   :symbol-index
+  :determinism :pure
+  :token-note  "Keyword/fuzzy match over index.edn only — never opens grimoire
+                files. Returns a shortlist the agent can then lookup_symbol on.")
+
+(spell get-grimoire-section
+  :tool-name   "get_grimoire_section"
+  :purpose     "Return one section of a grimoire (a rationale, an example block,
+                a Part) instead of the whole file"
+  :accepts     {:grimoire "string — grimoire name, e.g. \"reasoning\""
+                :section  "string — heading or section id, e.g. \"r/analogise\"
+                           or \"Design rationale\""
+                :part     "optional — :rationale | :examples | :parameters | :all"}
+  :returns     {:format :markdown}
+  :backed-by   :spec-reader
+  :determinism :pure
+  :token-note  "Section-level retrieval is the core token saving: a grimoire can
+                be 1500+ lines; a section is tens.")
+
+(spell get-examples
+  :tool-name   "get_examples"
+  :purpose     "Return only the code examples for a construct, stripped of prose"
+  :accepts     {:symbol "string — symbol name"
+                :count  "optional int — cap number of examples"}
+  :returns     {:format :code-blocks}
+  :backed-by   :spec-reader
+  :determinism :pure
+  :token-note  "When the agent needs to see usage, not read theory.")
+
+(spell list-grimoire
+  :tool-name   "list_grimoire"
+  :purpose     "Cheap orientation: constructs and one-line synopses for a grimoire
+                (or all grimoires)"
+  :accepts     {:grimoire "optional string — omit for all eleven grimoires"}
+  :returns     {:format :structured
+                :shape  [{:grimoire :string :symbol :string :synopsis :string}]}
+  :backed-by   :symbol-index
+  :determinism :pure
+  :token-note  "Built entirely from index.edn; the cheapest map of the territory.")
+
+(spell check-symbol-coverage
+  :tool-name   "check_symbol_coverage"
+  :purpose     "Report which Conjurer symbols a .cnj file references against the
+                full index.edn catalog — a utilisation density and gap map"
+  :accepts     {:path     "string — path to a .cnj file"
+                :grimoire "optional string — restrict the gap report to one grimoire"}
+  :returns     {:format :structured
+                :shape  {:total_in_index :number
+                         :referenced :number
+                         :coverage_pct :number
+                         :by_grimoire [{:grimoire :string
+                                        :available :number
+                                        :referenced :number
+                                        :symbols_used [:string]
+                                        :symbols_unused [:string]}]}}
+  :backed-by   [:symbol-index :cnj-model]   ;; set-intersection of two in-memory structures
+  :determinism :pure
+  :token-note  "Pure function over two already-parsed structures. Answers 'did you
+                use the spec well?' without loading any new data.")
+
+(spell trace-symbol
+  :tool-name   "trace_symbol"
+  :purpose     "Return which .cnj files in a workspace reference a given Conjurer
+                symbol, and how many times — the inverse of check_symbol_coverage"
+  :accepts     {:symbol "string — symbol name to trace, e.g. \"w/prototype\""
+                :file   "string — path to the workspace entry .cnj; charter
+                         :references chains determine the discovery scope"}
+  :returns     {:format :structured
+                :shape  {:symbol :string
+                         :known_symbol :boolean
+                         :total_files_scanned :number
+                         :files_with_reference [{:file :string
+                                                  :reference_count :number}]}}
+  :backed-by   [:symbol-index :workspace-state]
+  :determinism :pure
+  :token-note  "Answers 'who uses this symbol?' without the agent having to call
+                check_symbol_coverage on every file individually. known_symbol
+                lets the agent distinguish an absent symbol from an unused one.")
+
+(spell explain-form
+  :tool-name   "explain_form"
+  :purpose     "Return a rich contextual explanation of a named .cnj form:
+                its type, fields, each Conjurer symbol it references with
+                synopsis and grimoire, and which validation rules apply"
+  :accepts     {:file "string — path to the .cnj file"
+                :name "string — form name to explain (charter title, asset name,
+                       target name, spell name, or any domain form name)"}
+  :returns     {:format :structured
+                :shape  {:form_type :string
+                         :name      :string
+                         :fields    :map
+                         :symbols_referenced [{:symbol :string :grimoire :string
+                                               :synopsis :string :known :boolean}]
+                         :validation_rules [:string]}}
+  :backed-by   [:symbol-index :edn-parser :cnj-model]
+  :determinism :pure
+  :token-note  "Replaces the multi-call loop of lookup_symbol per reference.
+                A single call gives the agent a complete contextual picture
+                of one form without it having to reconstruct meaning from
+                scattered index lookups.")
+
+;;; ── Cluster B: Parsing & charter ──
+
+(spell parse-cnj
+  :tool-name   "parse_cnj"
+  :purpose     "Parse a .cnj file into a structured AST the agent can reason over"
+  :accepts     {:path    "string — path to a .cnj file"
+                :content "optional string — parse inline content instead of a path"}
+  :returns     {:format :structured
+                :shape  {:charter :map :assets [:map] :assumptions [:map]
+                         :contexts [:map] :domain-work [:form]
+                         :targets [:map] :handovers [:map]
+                         :section-order [:keyword]}}
+  :backed-by   :edn-parser   ;; plus cnj-model to shape the AST
+  :determinism :pure
+  :token-note  "Promoted into v1: the EDN parser exists for validation anyway, so
+                exposing the structured parse is nearly free.")
+
+(spell read-charter
+  :tool-name   "read_charter"
+  :purpose     "Return only the charter's fields, so the agent need not read the
+                whole .cnj to recover project memory"
+  :accepts     {:path   "string — path to a .cnj file"
+                :fields "optional [:goals :decisions :open :outputs :audience] —
+                         defaults to all"}
+  :returns     {:format :structured
+                :shape  {:title :string :version :string :goals [:string]
+                         :decisions [:map] :open [:string] :outputs :map}}
+  :backed-by   :cnj-model
+  :determinism :pure
+  :token-note  "The charter is the project's memory; this hands it back without
+                the surrounding domain work — directly serves session continuity.")
+
+(spell diff-cnj
+  :tool-name   "diff_cnj"
+  :purpose     "Return a structured semantic diff between two .cnj files —
+                which goals, decisions, targets, and assets were added or removed,
+                and which charter scalar fields (title, version) changed"
+  :accepts     {:path_a "string — path to the baseline .cnj file"
+                :path_b "string — path to the changed .cnj file"}
+  :returns     {:format :structured
+                :shape  {:charter {:title      {:before :string :after :string}
+                                   :version    {:before :string :after :string}
+                                   :goals      {:added [:string] :removed [:string]}
+                                   :decisions  {:added [:map] :removed [:map]}
+                                   :open       {:added [:string] :removed [:string]}
+                                   :references {:added [:string] :removed [:string]}}
+                         :targets  {:added [:string] :removed [:string]}
+                         :assets   {:added [:string] :removed [:string]}
+                         :summary  {:has_changes :boolean :change_count :number}}}
+  :backed-by   :cnj-model
+  :determinism :pure
+  :token-note  "Semantic diff over two model snapshots — not line-by-line text.
+                The agent gets the logical change set without scanning raw EDN.")
+
+;;; ── Cluster C: Validation ──
+
+(spell validate-cnj
+  :tool-name   "validate_cnj"
+  :purpose     "Check a .cnj file against the spec's structural rules and report
+                violations the agent would otherwise have to know by heart"
+  :accepts     {:path   "string — path to a .cnj file"
+                :mode   ":authored | :recovered — defaults to :authored"
+                :strict "optional bool — treat warnings as errors"}
+  :returns     {:format :structured
+                :shape  {:valid :boolean
+                         :violations [{:rule :keyword :severity :keyword
+                                       :location :string :message :string}]}}
+  :backed-by   :validation
+  :determinism :pure
+  :checks      ["charter is present and first"
+                "canonical section order (charter, asset, assume, context,
+                 domain, target, handover)"
+                "decisions log is append-only-shaped (each entry has :date :decision)"
+                "referenced symbols exist in index.edn"
+                "every :references target resolves to a readable file"
+                "intent topology (on forms that carry :requires/:prefers/:deferred/:manifest):
+                 (a) every :requires item appears in :manifest,
+                 (b) no :deferred item appears in :manifest,
+                 (c) no item is both :requires and :deferred"]
+  :mode-note   ":recovered relaxes the rules for a .cnj produced by an exhume
+                workflow: :recovered-marked decisions are valid, a 0.0.0-recovered
+                version is expected (not an error), and speculative intent appearing
+                as :open questions rather than decisions is correct, not a gap.
+                :authored applies the full strictness for a hand-written .cnj.
+                Intent topology rules (b) and (c) are relaxed in :recovered mode
+                since a recovered .cnj may not yet have a fully-specified :manifest.
+                Rule (a) — :requires must be in :manifest — is enforced in both
+                modes because a missing required item is unambiguously a gap.
+                Note: this mode is for validating OTHER recovered codebases after
+                the server is built — it plays no part in this project's own
+                tool-less bootstrap."
+  :token-note  "The agent inherits the spec's rules as a service instead of
+                carrying them in context.")
+
+(spell lint-disk-consistency
+  :tool-name   "lint_disk_consistency"
+  :purpose     "Compare declared :modules (in targets) and charter :references in a .cnj
+                file against the actual filesystem — catches the .cnj lying about what exists"
+  :accepts     {:path "string — path to the .cnj file"
+                :root "optional string — directory root to search for module files;
+                       defaults to dirname(path)"}
+  :returns     {:format :structured
+                :shape  {:consistent :boolean
+                         :issue_count :number
+                         :modules     {:declared :number
+                                       :found    :number
+                                       :missing  [{:target :string :module :string}]}
+                         :references  {:declared :number
+                                       :found    :number
+                                       :missing  [{:ref :string :resolved_to :string}]}}}
+  :backed-by   [:cnj-model :edn-parser]
+  :determinism :pure
+  :token-note  "Pure I/O check: no spec lookup, no workspace state. Answers 'does the
+                .cnj accurately reflect what is on disk?' before any generation step runs.
+                node_modules, dist, .git, coverage, and .turbo are excluded from the
+                module search automatically.")
+
+;;; ── Cluster D: Project-aware deterministic planning and cache ──
+
+(spell resolve
+  :tool-name   "resolve"
+  :purpose     "Resolve a selected form or file into dependency-aware execution
+                order with explicit unresolved diagnostics"
+  :accepts     {:content   "optional string — inline .cnj"
+                :file      "optional string — workspace .cnj path"
+                :form_type "optional string"
+                :form_name "optional string"}
+  :returns     {:format :structured
+                :shape  {:plan [{:form :string :file :string :reason :string}]
+                         :dependency_graph :map
+                         :unresolved [{:symbol :string :expected_in :string}]}}
+  :backed-by   :validation
+  :determinism :pure
+  :token-note  "Returns resolved structure directly so the LLM does not spend
+                tokens re-deriving dependency order from raw files.")
+
+(spell evaluate
+  :tool-name   "evaluate"
+  :purpose     "Evaluate a previously resolved deterministic plan with
+                fingerprint-keyed cache and stale-artifact reporting"
+  :accepts     {:selection   "optional explicit form selection"
+                :resolve_id  "optional prior resolve handle"
+                :mode        "optional :deterministic | :incremental"}
+  :returns     {:format :structured
+                :shape  {:cache_hit :boolean
+                         :cache_key :string
+                         :artifact :map
+                         :stale [{:form_name :string :reason :string}]}}
+  :backed-by   :validation
+  :determinism :pure
+  :token-note  "Unchanged inputs return cached artifacts; changed context is
+                surfaced explicitly as stale rather than silently reused.")
+
+(spell project-lint-topology
+  :tool-name   "project_lint_topology"
+  :purpose     "Report cross-file dependency/topology issues as structured
+                diagnostics instead of requiring free-form LLM scanning"
+  :accepts     {:workspace "optional root path override"}
+  :returns     {:format :structured
+                :shape  {:issues [{:severity :keyword :file :string :message :string}]
+                         :summary :map}}
+  :backed-by   :validation
+  :determinism :pure
+  :token-note  "Diagnostics-first output minimizes token spend and keeps failure
+                modes explicit and machine-checkable.")
+
+(spell materialise-preflight
+  :tool-name   "materialise_preflight"
+  :purpose     "Preflight a selected .cnj folder before materialisation: resolve
+                in-folder and out-of-folder references and report explicit
+                unresolved/non-readable targets"
+  :accepts     {:folder       "string — selected folder path (name is not fixed)"
+                :project_name "optional string — defaults to conjurer-mcp"
+                :entry_files  "optional [string] — explicit .cnj entry points;
+                              when omitted, auto-discover *.cnj in selected
+                              folder root"}
+  :returns     {:format :structured
+                :shape  {:project_name :string
+                         :package_json_required :boolean
+                         :resolved_refs [{:from :string :to :string :outside_folder :boolean}]
+                         :unresolved_refs [{:from :string :target :string :reason :string}]
+                         :missing_paths [{:path :string :reason :string}]
+                         :ready :boolean}}
+  :backed-by   :preflight-resolver
+  :determinism :pure
+  :token-note  "Makes non-resolving inputs explicit and machine-checkable so the
+                semantic materialiser does not guess missing dependencies.")
+
+(spell lens-dependency-graph
+  :tool-name   "lens_dependency_graph"
+  :purpose     "Return the cross-file target dependency graph and topological order
+                for a workspace rooted at a .cnj entry file; optionally narrow to
+                the subgraph reachable from one named target"
+  :accepts     {:file   "string — path to the entry .cnj file"
+                :target "optional string — return only the subgraph reachable
+                         from (and including) this target name via :from edges"}
+  :returns     {:format :structured
+                :shape  {:nodes   [{:name :string :file :string}]
+                         :edges   [{:from :string :to :string}]
+                         :topo_order   [:string]
+                         :cycle_detected :boolean
+                         :by_file {:string [:string]}}}
+  :backed-by   :workspace-state
+  :determinism :pure
+  :token-note  "Pure view over an already-computed snapshot. The agent gets the
+                dependency topology as first-class data instead of reconstructing
+                it mentally from scattered :from fields across multiple files.")
+
+(spell lens-open-questions
+  :tool-name   "lens_open_questions"
+  :purpose     "Aggregate all open questions across the workspace in one call —
+                the cross-file open question inventory the agent would otherwise
+                have to assemble by calling read_charter on every file"
+  :accepts     {:file "string — path to the workspace entry .cnj"}
+  :returns     {:format :structured
+                :shape  {:files_with_open [{:file :string :title :string
+                                             :open [:string]}]
+                         :total_open          :number
+                         :total_files_scanned :number}}
+  :backed-by   :workspace-state
+  :determinism :pure
+  :token-note  "Pure fold over charter.open arrays in the workspace snapshot.
+                Only files that have at least one open question appear in
+                files_with_open; total_files_scanned gives the full scope.")
+
+(spell workspace-summary
+  :tool-name   "workspace_summary"
+  :purpose     "Aggregate structural stats across all .cnj files in a workspace
+                in one call — replaces the multi-call pattern of resolve +
+                validate × N + read_charter × N"
+  :accepts     {:file "string — path to the workspace entry .cnj"}
+  :returns     {:format :structured
+                :shape  {:files   [{:file :string :title :string :version :string
+                                    :targets :number :decisions :number
+                                    :open :number :valid :boolean
+                                    :violations :number}]
+                         :totals  {:files :number :targets :number
+                                   :decisions :number :open :number
+                                   :valid_files :number :invalid_files :number}}}
+  :backed-by   [:workspace-state :validation]
+  :determinism :pure
+  :token-note  "One call instead of N+1. Coverage pct is omitted by design —
+                it requires the spec index and is already served by
+                check_symbol_coverage. This tool stays structural.")
+
+(spell list-candidates
+  :tool-name   "list_candidates"
+  :purpose     "List all f/candidate forms from workspace .cnj files, ranked for
+                triage: grouped by :cluster (shared phase / affinity), sorted by
+                descending total score within each group, clusters ordered by their
+                highest total so the most attractive coherent phase surfaces first.
+                Returns the raw :conditions for each candidate so the agent can
+                surface phase dependencies without needing to read the .cnj files."
+  :accepts     {:file    "string — path to the workspace entry .cnj; charter
+                          :references chains determine the discovery scope"
+                :status  "optional string — filter by lifecycle status
+                          (:proposed | :planned | :hoisted | :abandoned);
+                          defaults to excluding hoisted and abandoned"
+                :cluster "optional string — restrict output to a single cluster"}
+  :returns     {:format :structured
+                :shape  {:total_candidates  :number
+                         :total_files_scanned :number
+                         :clusters [{:cluster    :string
+                                     :max_score  :number
+                                     :mean_score :number
+                                     :candidates [{:id          :string
+                                                   :label       :string
+                                                   :status      :string
+                                                   :total_score :number
+                                                   :scores      :map
+                                                   :added       :string
+                                                   :rationale   :string
+                                                   :conditions  [:string]}]}]}}
+  :backed-by   [:cnj-model :workspace-state]
+  :determinism :pure
+  :token-note  "Makes the f/candidate backlog triageable in one call: ranked by
+                attractiveness, grouped by phase, conditions surfaced for dependency
+                inference. The server reading its own design layer as data.")
+
+;;; ── Cluster F: Foresight ──
+
+(spell lens-hoist-readiness
+  :tool-name   "lens_hoist_readiness"
+  :purpose     "Return a pre-decision triage briefing: active candidates (proposed or
+                planned) meeting a score threshold, ranked by total score with their
+                conditions surfaced verbatim. Implements the foresight→r/decide handoff
+                from the grimoire's integration pattern without the server claiming to
+                know whether conditions are actually met."
+  :accepts     {:file      "string — path to the workspace entry .cnj"
+                :min_score "optional int (1–40) — minimum total score for inclusion;
+                            default 28"}
+  :returns     {:format :structured
+                :shape  {:min_score                  :number
+                         :candidates_above_threshold :number
+                         :total_active               :number
+                         :total_files_scanned        :number
+                         :median_total_score         :number
+                         :candidates_with_reassessment :number
+                         :candidates [{:id               :string
+                                       :label            :string
+                                       :status           :string
+                                       :total_score      :number
+                                       :scores           :map
+                                       :conditions       [:string]
+                                       :days_since_added :number
+                                       :has_reassessment :boolean}]}}
+  :backed-by   [:cnj-model :workspace-state]
+  :determinism :pure
+  :token-note  "Structures the pre-hoist briefing in one call: the agent need not
+                call list_candidates and filter manually. conditions are returned
+                verbatim — the server surfaces them; the practitioner evaluates them.")
+
+(spell diff-candidates
+  :tool-name   "diff_candidates"
+  :purpose     "Return a semantic diff of the f/candidate backlog between two .cnj
+                snapshots: candidates added, removed, promoted (status change), score
+                changes per dimension, and graduations (present in A as a candidate,
+                closed in B via f/hoist). Keyed by stable :id per the grimoire spec."
+  :accepts     {:path_a "string — baseline .cnj path"
+                :path_b "string — target .cnj path"}
+  :returns     {:format :structured
+                :shape  {:candidates {:added    [{:id :string :label :string :status :string :total_score :number}]
+                                      :removed  [{:id :string :label :string :status :string :total_score :number}]
+                                      :status_changes [{:id :string :label :string :before :string :after :string}]
+                                      :score_changes  [{:id :string :label :string
+                                                        :score_changes :map
+                                                        :total_before :number :total_after :number}]
+                                      :hoisted  [{:id :string :label :string :hoist_date :string :into :string}]}
+                         :summary {:has_changes :boolean :change_count :number :graduation_count :number}}}
+  :backed-by   :cnj-model
+  :determinism :pure
+  :token-note  "The hoisted category is what distinguishes graduation from removal —
+                a candidate that became a decision is structurally different from one
+                that was dropped. graduation_count surfaces this count explicitly for
+                cheap progress-checking by the agent.")
+
+(spell lens-foresight-health
+  :tool-name   "lens_foresight_health"
+  :purpose     "Backlog maintenance diagnostics: stale candidates, thin rationale, orphaned
+                hoists, high-score/no-conditions gaps, and lifecycle distribution — the
+                grimoire's own stated discipline made queryable as structured violations"
+  :accepts     {:file                "string — path to the workspace entry .cnj"
+                :stale_days          "optional int — days without reassessment before flagging as stale; default 30"
+                :min_rationale_length "optional int — minimum rationale character length; default 20"
+                :high_score_threshold "optional int (1–40) — total score above which empty :conditions is flagged; default 30"}
+  :returns     {:format :structured
+                :shape  {:consistent                  :boolean
+                         :issue_count                 :number
+                         :stale_candidates            [{:id :string :label :string
+                                                        :days_since_added :number
+                                                        :has_reassessment :boolean}]
+                         :thin_rationale              [{:id :string :label :string
+                                                        :rationale_length :number}]
+                         :orphaned_hoists             [{:of :string :date :string :into :string}]
+                         :high_score_no_conditions    [{:id :string :label :string
+                                                        :total_score :number}]
+                         :lifecycle_distribution      {:string :number}
+                         :total_candidates_scanned    :number
+                         :total_hoists_scanned        :number
+                         :total_files_scanned         :number}}
+  :backed-by   [:cnj-model :workspace-state]
+  :determinism :pure
+  :token-note  "All five checks are pure arithmetic and string operations over the model.
+                The agent gets the backlog health picture in one call without spec lookups.
+                Thresholds are tunable but the defaults encode the grimoire's own guidance.")
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Section VI — Module decomposition (TSF++: every module ≤ 400 lines)
+;;; ─────────────────────────────────────────────────────────────────
+
+;;; @conjurer/core — the shared package. Five single-responsibility modules.
+
+(target :shared-core
+  :language  :typescript
+  :standard  :tsf-plus-plus
+  :produces  [:library :type-definitions]
+  :via       :direct
+  :modules [
+    {:module "edn-parser.ts"
+     :responsibility "Tokenise and parse EDN / s-expressions into a typed AST.
+                      Reused for index.edn and .cnj. The robust parser from the
+                      prior project, ported clean."
+     :exports ["parse" "tokenize" "EdnNode"]
+     :est-lines 280}
+    {:module "spec-reader.ts"
+     :responsibility "Locate the spec (path/symlink resolution), lazy-read grimoire
+                      files, cache by mtime. The only module that touches the spec
+                      filesystem."
+     :exports ["SpecReader" "resolveSpecPath" "readGrimoire" "readSection"]
+     :est-lines 240}
+    {:module "symbol-index.ts"
+     :responsibility "Parse index.edn once into an in-memory Map; expose lookup,
+                      search, and list over it. No grimoire I/O — routing only."
+     :exports ["SymbolIndex" "lookup" "search" "listAll"]
+     :est-lines 220}
+    {:module "cnj-model.ts"
+     :responsibility "Shape a parsed .cnj AST into the typed project model
+                      (charter, assets, targets…) used by read_charter and parse_cnj."
+     :exports ["CnjDocument" "Charter" "toCnjModel"]
+     :est-lines 260}
+    {:module "validation.ts"
+     :responsibility "Pure rule functions over a CnjDocument; returns a violation
+                      list. Supports :authored and :recovered modes (the latter
+                      tolerates exhume-recovered .cnj shapes). No I/O — takes a
+                      model, returns a report."
+     :exports ["validateCnj" "ValidationRule" "Violation" "ValidationMode"]
+     :est-lines 320}
+    {:module "preflight-resolver.ts"
+     :responsibility "Deterministic folder preflight for materialisation:
+              discover entry .cnj files, resolve in-folder and external
+              references, and report unresolved/non-readable targets as
+              structured diagnostics."
+     :exports ["runMaterialisePreflight" "MaterialisePreflightReport"]
+     :est-lines 280}
+    {:module "workspace-state.ts"
+     :responsibility "Pure computational core for the stateful resolve/evaluate
+                      cluster: discover .cnj files from a charter :references
+                      chain (one level), build the cross-file target DAG from
+                      :from fields, topological sort, and compute a context key
+                      (SHA-256) from all transitive file contents. No I/O side
+                      effects beyond reading files; no mutable state. The server
+                      layer holds the evaluate cache; this module only computes."
+     :exports ["buildWorkspaceSnapshot" "topoOrder" "computeContextKey"
+               "WorkspaceSnapshot" "ParsedFileEntry"]
+     :est-lines 260}
+    {:module "types.ts"
+     :responsibility "Shared type definitions exported at the package boundary
+                      (SymbolRecord, GrimoireRef, ToolResult shapes)."
+     :exports ["SymbolRecord" "GrimoireRef" "ToolResult"]
+     :est-lines 140}])
+
+;;; The server package — thin MCP wiring over the core. One module per concern.
+
+(target :mcp-server
+  :language  :typescript
+  :framework :mcp-sdk
+  :standard  :tsf-plus-plus
+  :produces  [:stdio-mcp-server :test-suite]
+  :from      :shared-core
+  :via       :direct
+  :modules [
+    {:module "server.ts"
+     :responsibility "Entry point: construct the MCP server, register tools,
+                      connect the stdio transport, start. Wiring only — no logic."
+     :exports ["main"]
+     :est-lines 120}
+    {:module "tools/retrieval.ts"
+     :responsibility "Register and handle the eight Cluster-A tools (lookup_symbol,
+                      search_symbols, get_grimoire_section, get_examples,
+                      list_grimoire, check_symbol_coverage, trace_symbol,
+                      explain_form); each delegates to symbol-index, spec-reader,
+                      workspace-state, or cnj-model and shapes the ToolResult."
+     :exports ["registerRetrievalTools"]
+     :est-lines 320}
+    {:module "tools/parse.ts"
+     :responsibility "Register and handle parse_cnj and read_charter; delegate to
+                      edn-parser and cnj-model."
+     :exports ["registerParseTools"]
+     :est-lines 160}
+    {:module "tools/validate.ts"
+     :responsibility "Register and handle validate_cnj and lint_disk_consistency; delegate to
+                      validation and cnj-model. lint_disk_consistency walks the filesystem under
+                      a configurable root using recursive readdirSync to find declared module files."
+     :exports ["registerValidateTools" "handleValidate" "handleLintDiskConsistency"]
+     :est-lines 145}
+    {:module "tools/diff.ts"
+     :responsibility "Register and handle diff_cnj (charter/targets/assets diff) and
+                      diff_candidates (semantic backlog diff: added, removed, hoisted,
+                      status and score changes). Pure comparison over CnjDocument
+                      values; no workspace state, no spec lookup."
+     :exports ["registerDiffTools" "handleDiffCandidates"]
+     :est-lines 252}
+    {:module "tools/project.ts"
+     :responsibility "Register and handle the Cluster-D project-aware tools
+                      (resolve, evaluate, project_lint_topology,
+                      materialise_preflight); delegate to workspace-state,
+                      preflight-resolver. Holds the process-local evaluate
+                      cache (session-local; not shared across instances)."
+     :exports ["registerProjectTools"]
+     :est-lines 220}
+    {:module "tools/lenses.ts"
+     :responsibility "Register and handle workspace-level lens tools
+                      (lens_open_questions, workspace_summary,
+                      lens_dependency_graph, and future lenses); delegate to
+                      workspace-state and validation. All tools add scope
+                      metadata so callers know workspace discovery method."
+     :exports ["registerLensTools"]
+     :est-lines 200}
+    {:module "tools/foresight.ts"
+     :responsibility "Register and handle list_candidates (cluster-grouped, score-sorted
+                      backlog view), lens_hoist_readiness (pre-decision triage: active candidates
+                      above threshold ranked by score, conditions verbatim, has_reassessment,
+                      workspace stats), and lens_foresight_health (backlog maintenance diagnostics:
+                      stale candidates, thin rationale, orphaned hoists, high-score/no-conditions
+                      gaps, lifecycle distribution). Pure fold over CnjDocument.candidates and
+                      CnjDocument.hoists; no spec lookup."
+     :exports ["registerForesightTools" "handleListCandidates" "handleHoistReadiness" "handleForesightHealth"]
+     :est-lines 295}
+    {:module "resources.ts"
+     :responsibility "Register MCP protocol resources: list all grimoire names
+                      and read one grimoire file by name as a
+                      conjurer://grimoire/<name> URI. Read-only; delegates to
+                      spec-reader. No tool overlap — tools slice, resources browse."
+     :exports ["registerGrimoireResources"]
+     :est-lines 80}
+    {:module "logging.ts"
+     :responsibility "stderr-only structured logging — never stdout (stdio
+                      transport safety)."
+     :exports ["log" "logError"]
+     :est-lines 80}])
+
+;;; Module sizes (actual): retrieval.ts ~320, lenses.ts ~200, project.ts ~220,
+;;; diff.ts 252, foresight.ts ~295, parse.ts ~138, validate.ts ~145.
+;;; All within the 400-line soft ceiling; no deviation required.

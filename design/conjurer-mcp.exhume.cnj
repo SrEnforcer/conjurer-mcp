@@ -1,0 +1,98 @@
+;;; conjurer-mcp.exhume.cnj
+;;; Recovery workflow for exhuming intent from ../conjurer-mcp into Conjurer artifacts.
+
+(charter "Exhume conjurer-mcp into cnj-mcp design"
+  :version "0.0.1"
+  :created "2026-06-06"
+  :updated "2026-06-10"
+  :domain "Recover intent from an existing TypeScript MCP project and re-express it as Conjurer specification."
+  :language :en
+
+  :goals [
+    "Preserve the upstream example baseline in design/ root (conjurer-mcp.cnj, mcp-server.cnj, vscode-extension.cnj) before any design divergence."
+    "Recover attested architecture and behavior from ../conjurer-mcp without overstating uncertain intent."
+    "Emit a continuable recovered charter with confidence-aware decisions and explicit open questions."]
+
+  :decisions [
+    {:date "2026-06-06"
+     :decision "Use x/survey, x/recover-model, x/infer-conventions, x/recover-stack, x/reconstruct-decisions, and x/charter as the default recovery arc."}
+    {:date "2026-06-06"
+     :decision "Treat README, package.json, runtime wiring files, and tests as primary evidence; treat rationale as inferred unless directly stated."}
+    {:date "2026-06-06"
+     :decision "Confidence policy is non-negotiable: speculative recovery never becomes a decision; it is always emitted to :open."}
+    {:date "2026-06-10"
+     :decision "Recovered architecture split is no longer open: the project has already landed and stabilised beyond the original baseline, with substantial improvement over prior code shape."}
+    {:date "2026-06-10"
+     :decision "Migration posture is updated: exhumed findings have already been absorbed extensively; optional legacy behaviour is treated as non-binding unless still required by current implementation contracts."}
+    {:date "2026-06-10"
+     :decision "Package layout question is closed as settled: the current packages/ structure is accepted and retained for ongoing phases; no src-centred re-layout is planned from this charter."}]
+
+  :open []
+
+  :outputs {
+    :recovery-workflow :conjurer-only
+    :recovered-charter :conjurer-only}
+
+  :references ["conjurer-mcp.recovered.cnj"]
+  :tags [:exhume :conjurer-mcp :recovery :design])
+
+(x/survey "../conjurer-mcp"
+  :scope :repository
+  :detect [:languages :structure :entry-points :dependencies :scale :test-coverage :apparent-purpose]
+  :depth :standard
+  :note [:reusable :dead-code :inconsistencies]
+  :manifest conjurer-mcp-survey)
+
+(x/recover-model "../conjurer-mcp/src"
+  :from [:types :functions :schemas :tests :api-surface]
+  :recover [:entities :relationships :operations :invariants :vocabulary]
+  :focus ["src/index/server-runtime.ts" "src/services" "src/http-bridge.ts"]
+  :confidence :grade-each
+  :emit :d-explore-compatible
+  :manifest conjurer-mcp-model)
+
+(x/infer-conventions "../conjurer-mcp"
+  :observe [:naming :file-structure :error-handling :testing :imports :typing :comments]
+  :threshold 0.80
+  :distinguish [:convention :accident :drift]
+  :emit :asset
+  :manifest conjurer-mcp-conventions)
+
+(x/recover-stack "../conjurer-mcp"
+  :sources [:package-manifest
+            :lockfile
+            :tsconfig
+            :eslint
+            :build-scripts
+            :runtime-entrypoints
+            :workspace-layout
+            {:external-eslint-base {:package "@tsfpp/eslint-config" :entry "dist/base.js" :registry "npmjs"}}
+            {:external-tsconfig-base {:package "@tsfpp/tsconfig" :entry "tsconfig.base.json" :registry "npmjs"}}
+            {:external-tsconfig-app {:package "@tsfpp/tsconfig" :entry "tsconfig.app.json" :registry "npmjs"}}
+            {:external-tsconfig-lib {:package "@tsfpp/tsconfig" :entry "tsconfig.lib.json" :registry "npmjs"}}
+            {:external-team-standard-readme {:package "@tsfpp/standard" :entry "README.md" :registry "npmjs"}}
+            {:external-team-standard-spec {:package "@tsfpp/standard" :entry "spec/CODING_STANDARD.md" :registry "npmjs"}}]
+  :recover [:dependencies :build :runtime :lint-format :lint-rules :typescript-compiler-policy :team-standard-policy :packaging :toolchain]
+  :ecosystem :node-typescript
+  :distinguish [:declared :enforced :implicit]
+  :detect-drift true
+  :emit [:asset :assume-infrastructure :stack-report]
+  :manifest conjurer-mcp-stack)
+
+(x/reconstruct-decisions "../conjurer-mcp"
+  :from [:git-history :comments :structure :code-shape :dependencies]
+  :recover [:what :why :alternatives-rejected :when]
+  :confidence :grade-each
+  :emit :charter-decisions
+  :manifest conjurer-mcp-decisions)
+
+(x/charter "../conjurer-mcp"
+  :title "conjurer-mcp (recovered baseline)"
+  :assemble [:survey :model :conventions :stack :decisions :architecture]
+  :using [conjurer-mcp-survey conjurer-mcp-model conjurer-mcp-conventions conjurer-mcp-stack conjurer-mcp-decisions]
+  :confidence-policy {:speculative :as-open-questions
+                      :strongly-inferred :as-decisions-marked
+                      :attested :as-decisions}
+  :open-from :gaps
+  :emit :cnj-file
+  :manifest conjurer-mcp-recovered)

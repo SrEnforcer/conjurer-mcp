@@ -1,0 +1,200 @@
+;; Anchors bounded-context decisions so data contracts remain stable across API
+;; and UI generation targets.
+(charter "Conjurer Demo Website — Domain"
+  :version    "0.3.0"
+  :created    "2025-11-06"
+  :updated    "2025-11-06"
+  :domain     "Grimoire catalog; symbol index; playground sessions"
+
+  :decisions  [
+    {:date "2025-11-06"
+     :decision "index.edn is the single source of truth for grimoire/symbol data.
+                Loaded at build time via a Vite plugin; parsed into typed domain
+                objects once at startup. Never duplicated in app source."}
+    {:date "2025-11-06"
+     :decision "Playground sessions are ephemeral value objects — not persisted.
+                No user data stored per project.cnj non-negotiable."}]
+
+  :open       ["Case handling for symbol search: exact or case-insensitive?"]
+
+  :references []
+  :outputs    {:domain-package (target :domain-pkg
+                                  :language :typescript
+                                  :standard :tsfpp
+                                  :produces [:library])})
+
+;; Declares the shared vocabulary for this session to keep downstream derivations 
+;; semantically aligned.
+(context establish conjurer-site-domain
+  :domain   :developer-tooling
+  :entities {
+    :grimoire          [:name :namespace :file :description :version :constructs]
+    :symbol            [:name :namespace :grimoire :synopsis :key-params :accepts :produces]
+    :example           [:id :title :grimoire :code :explanation :tags]
+    :playground-session [:id :input :interpretation :constructs-used :elapsed-ms]}
+  :active-in :session)
+
+;; Encodes catalog integrity rules up front so ingestion errors fail at the schema boundary.
+(shape grimoire
+  :fields {
+    :name        (string :min-length 3 :max-length 40)
+    :namespace   (string :optional true :pattern "^[a-z]+/$")
+    :file        (string :pattern "^grimoires/[a-z]+\\.md$")
+    :description (string :max-length 200)
+    :version     (string :format :semver)
+    :constructs  [(map :of construct-group) :min-length 1]}
+  :invariants [
+    "namespace is nil only for core"
+    "every construct name must match a symbol in index.edn"]
+  :examples [
+    {:name "domain" :namespace "d/" :file "grimoires/domain.md"
+     :description "Knowledge extraction: exploring documents, modeling domains"
+     :version "2.0.0"}])
+
+;; Constrains symbol identity and naming conventions to prevent drift between docs and
+;; index sources.
+(shape symbol
+  :fields {
+    :name       (string :pattern "^[a-z~/][a-z0-9/\\-~>]*$")
+    :grimoire   (string)
+    :namespace  (string :optional true)
+    :synopsis   (string :max-length 160)
+    :key-params (vector :of keyword)
+    :accepts    (vector :of keyword)
+    :produces   (vector :of keyword)}
+  :invariants [
+    "name is prefixed by namespace when namespace is not nil"
+    "grimoire must reference a known grimoire"]
+  :examples [
+    {:name "d/explore" :grimoire "domain" :namespace "d/"
+     :synopsis "Analyse sources to extract comprehensive domain model"
+     :key-params [:depth :focus :infer :output]}])
+
+;; Limits request surface area to keep the interpreter endpoint predictable and
+;; abuse-resistant.
+(shape playground-request
+  :fields {
+    :input      (string :min-length 1 :max-length 4000)
+    :context    (map :optional true)
+    :session-id (string :optional true :format :uuid)}
+  :invariants [
+    "input must contain at least one recognisable Conjurer construct"])
+
+;; Standardizes response payload semantics so UI rendering stays deterministic under
+;; malformed input.
+(shape playground-response
+  :fields {
+    :interpretation  (string :min-length 1)
+    :constructs-used (vector :of string)
+    :open-questions  (vector :of string :optional true)
+    :session-id      (string :format :uuid)
+    :elapsed-ms      (integer :min 0)}
+  :invariants [
+    "interpretation is never empty — malformed input gets an explanation"
+    "constructs-used references symbols from index.edn"])
+
+;; Maps conceptual entities and relationships to preserve ubiquitous language across
+;; implementation layers.
+(d/model "Conjurer Site"
+  :entities {
+    :grimoire {
+      :type       :aggregate-root
+      :attributes [:name :namespace :file :description :version :constructs]
+      :lifecycle  [:draft :published :deprecated]}
+    :symbol {
+      :type       :entity
+      :attributes [:name :grimoire :namespace :synopsis :key-params :accepts :produces]
+      :note       "Read from index.edn at build time; treated as immutable at runtime"}
+    :example {
+      :type       :entity
+      :attributes [:id :title :grimoire :code :explanation :tags]}
+    :playground-session {
+      :type       :value-object
+      :attributes [:id :input :interpretation :constructs-used :open-questions :elapsed-ms]
+      :note       "Ephemeral — not persisted"}}
+
+  :relationships [
+    {:from :symbol  :to :grimoire :type :belongs-to :cardinality :many-to-one}
+    {:from :example :to :grimoire :type :illustrates :cardinality :many-to-one}]
+
+  :operations {
+    :browse-grimoires    {:actors [:visitor] :outputs [:grimoire-list]}
+    :search-symbols      {:actors [:visitor] :inputs [:query-string] :outputs [:symbol-list]}
+    :get-symbol          {:actors [:visitor] :inputs [:symbol-name] :outputs [:symbol-detail]}
+    :interpret-invocation {
+      :actors        [:visitor]
+      :inputs        [:playground-request]
+      :outputs       [:playground-response]
+      :preconditions ["input contains valid Conjurer syntax"]}}
+
+  :invariants [
+    "Every symbol belongs to exactly one grimoire"
+    "index.edn is the single source of truth — never hardcoded in app"])
+
+;; Captures enforceable runtime policy separately from shape validation to keep policy changes
+;; auditable.
+(r/rules playground-rules
+  :rules [
+    {:name     :rate-limit-by-ip
+     :if       "more than 20 playground requests from same IP in 10 minutes"
+     :then     "return 429 with Retry-After header"
+     :strength :definitive}
+    {:name     :max-input-length
+     :if       "playground input exceeds 4000 characters"
+     :then     "return 400 — input too long"
+     :strength :definitive}
+    {:name     :no-persistence
+     :if       "playground session completes"
+     :then     "discard — do not store input or output"
+     :strength :definitive}
+    {:name     :graceful-malformed
+     :if       "playground input is malformed Conjurer"
+     :then     "return an explanation of what is wrong — never a raw error"
+     :strength :definitive}]
+  :active-in :session)
+
+;; Provides a stable classification axis for navigation and filtering, independent of
+;; page-level presentation.
+(t/define grimoire-capability-taxonomy
+  :purpose  "Classify grimoires by primary capability for UI filtering"
+  :root     :conjurer-capability
+  :criteria {:level-1 "Primary concern: knowledge, construction, or coordination?"}
+  :membership :monothetic
+  :exhaustive true
+  :exclusive  true
+
+  :categories [
+    {:name    :knowledge-work
+     :parent  :conjurer-capability
+     :defines "Extract, model, or reason about domain knowledge"
+     :members [:domain :semantics :reasoning :taxonomy]}
+    {:name    :construction
+     :parent  :conjurer-capability
+     :defines "Generate working artefacts: code, data, interfaces"
+     :members [:core :data :web]}
+    {:name    :coordination
+     :parent  :conjurer-capability
+     :defines "Orchestrate processes, agents, or communication"
+     :members [:orchestrate :agent :eloquence]}]
+
+  :manifest grimoire-taxonomy)
+
+;; Documents implementation heuristics and anti-patterns so future contributors inherit
+;; hard-won constraints.
+(lore domain-patterns
+  :patterns [
+    {:name      :index-is-truth
+     :when      "displaying or processing grimoire/symbol data"
+     :apply     "Load from index.edn at build time. Parse into typed objects once.
+                 Never duplicate symbol metadata in app source."
+     :rationale "Single source of truth. index.edn is maintained by the spec."}
+    {:name      :boundary-at-every-edge
+     :when      "receiving external data — HTTP, index.edn, .md files"
+     :apply     "Parse through a Zod schema from @tsfpp/boundary before using.
+                 Return Result<T, ParseError>."
+     :rationale "TypeScript types are a lie beyond process boundaries."}]
+  :anti-patterns [
+    {:name    :hardcoded-symbol-data
+     :avoid   "Copying grimoire/symbol data into app source"
+     :because "index.edn diverges immediately"}]
+  :active-in :session)

@@ -1,0 +1,108 @@
+;; Defines scope and cross-cutting tradeoffs so subfiles can evolve independently without losing product intent.
+(charter "Conjurer Demo Website — Root"
+  :version  "0.4.0"
+  :created  "2025-11-06"
+  :updated  "2025-11-06"
+  :domain   "Developer tooling; Conjurer language documentation and interactive demo"
+
+  :goals [
+    "Communicate what Conjurer is and why it matters in under 60 seconds"
+    "Let visitors browse all 10 grimoires and 107 symbols interactively"
+    "Provide an interactive playground: write Conjurer, see it interpreted via MCP"
+    "Lower the barrier to installing the SKILL and MCP server"
+    "Serve as the canonical public home for the Conjurer spec, skill, and MCP"]
+
+  :audience {:primary   :developer-evaluating-conjurer
+             :secondary [:contributor :llm-researcher :technical-architect]}
+
+  :decisions [
+    {:date "2025-11-06"
+     :decision "pnpm monorepo: apps/web, apps/api, packages/domain, packages/ui.
+                Imperative shell (apps/) over pure functional core (packages/).
+                TSF++ standard throughout."}
+    {:date "2025-11-06"
+     :decision "Hono on Cloudflare Workers for the API. No Express — its
+                imperative middleware model conflicts with TSF++ boundary discipline."}
+    {:date "2025-11-06"
+     :decision "Vite + React 18. No SSR at launch. Revisit if SEO matters."}
+    {:date "2025-11-06"
+     :decision "Trunk-based development. main is always deployable. Feature flags
+                for in-flight playground work."}
+    {:date "2025-11-06"
+     :decision "Playground proxies to conjurer-mcp via the API layer.
+                API key never in the browser bundle."}]
+
+  :open [
+    "Rate limiting for playground: IP-based for now. Revisit if abuse."
+    "Analytics: Plausible or none. Decision pending."
+    "Grimoire content served as raw .md or pre-parsed EDN?"]
+
+  :outputs {
+    :domain-model   :conjurer-only
+    :symbol-catalog :conjurer-only
+    :web-app        :conjurer-only
+    :api            :conjurer-only
+    :infrastructure :conjurer-only}
+
+  :references ["domain.cnj" "frontend.cnj" "api.cnj" "infrastructure.cnj"]
+  :tags       [:conjurer :demo :developer-marketing :phase-1])
+
+;; Pins engineering invariants that keep domain logic framework-free and error handling explicit.
+(asset :tsfpp
+  :type        :code-standard
+  :description "TSF++ TypeScript: imperative shell, pure functional core,
+                Result<T,E>, no throw in core, Zod at all boundaries"
+  :language    :typescript
+  :location    "standards/tsfpp.md"
+  :version     "1.0.0"
+  :enforces    [
+    "packages/domain: pure functions only — no React, no Hono, no I/O"
+    "All external I/O enters through @tsfpp/boundary parsers returning Result<T, E>"
+    "Errors are values — never throw in business logic"
+    "pipe() from @tsfpp/prelude for transformation chains"
+    "No imperative loops in packages/domain — Array.map/filter/reduce"
+    "Maximum function body length: 20 lines"
+    "Named exports only — no default exports"]
+  :prohibits   [
+    "throw/catch in packages/domain"
+    "React or Hono imports in packages/domain"
+    "Direct fetch() outside @tsfpp/boundary adapters"
+    "Barrel files re-exporting from index.ts"
+    "Default exports"]
+  :agent       :typescript-agent
+  :active-in   :project)
+
+;; Captures delivery discipline to keep `main` continuously releasable under a small-team cadence.
+(asset :trunk-based-dev
+  :type        :style-guide
+  :description "Trunk-based development: main always deployable, short-lived
+                feature branches, conventional commits, linear history"
+  :location    "docs/git-conventions.md"
+  :version     "1.0.0"
+  :enforces    [
+    "main is always deployable — no broken commits"
+    "Feature branches: feat/short-name, max 2 days"
+    "Conventional commits: feat: fix: docs: refactor: chore:"
+    "Rebase before merge — linear history"
+    "Feature flags in src/flags.ts for in-progress work"
+    "PR requires CI green before merge"]
+  :prohibits   [
+    "Long-lived branches (> 2 days)"
+    "Direct pushes to main without CI green"
+    "Merge commits on main"]
+  :active-in   :project)
+
+;; Makes operational constraints explicit so later architectural choices are evaluated against budget and launch limits.
+(assume
+  :environment    :production-saas
+  :scale          "< 1K DAU at launch, developer audience.
+                   Playground is the expensive path — add caching before scaling."
+  :team           {:size 2 :skill-level :senior}
+  :infrastructure {:existing [:cloudflare-pages :cloudflare-workers :github-actions]
+                   :avoid    [:kubernetes :separate-ci-cd-platform]}
+  :constraints    {:budget :bootstrapped :timeline "3 weeks to public launch"}
+  :non-negotiable [
+    :tsfpp-standard-throughout
+    :trunk-based-development
+    :zero-runtime-deps-in-domain-package
+    :key-never-in-browser-bundle])

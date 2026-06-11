@@ -1,0 +1,10 @@
+{
+  "extends": "@tsfpp/tsconfig/lib",
+  "compilerOptions": {
+    "types": ["node"],
+    "rootDir": "src",
+    "outDir": "dist",
+    "declarationDir": "dist/types"
+  },
+  "include": ["src"]
+}

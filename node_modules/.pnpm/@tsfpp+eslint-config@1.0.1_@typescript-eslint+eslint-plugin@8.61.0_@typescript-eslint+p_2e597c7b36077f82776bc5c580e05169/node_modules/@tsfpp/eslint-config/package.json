@@ -1,0 +1,68 @@
+{
+  "name": "@tsfpp/eslint-config",
+  "version": "1.0.1",
+  "description": "Shared ESLint flat configuration for TSF++ projects",
+  "keywords": [
+    "eslint",
+    "eslint-config",
+    "typescript",
+    "tsfpp",
+    "functional",
+    "immutability"
+  ],
+  "homepage": "https://github.com/tsfpp/eslint-config#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tsfpp/eslint-config.git",
+    "directory": "packages/eslint-config"
+  },
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".":              "./dist/base.js",
+    "./react":        "./dist/react.js",
+    "./api":          "./dist/api.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "scripts": {
+    "build":          "tsc --project tsconfig.build.json",
+    "prepublishOnly": "pnpm run build",
+    "lint":           "eslint dist/",
+    "test":           "node --input-type=module --eval \"import './dist/base.js'\""
+  },
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "peerDependencies": {
+    "@tanstack/eslint-plugin-query": ">=5.0.0",
+    "@typescript-eslint/eslint-plugin": ">=8.0.0",
+    "@typescript-eslint/parser": ">=8.0.0",
+    "eslint": ">=9.0.0",
+    "eslint-plugin-functional": "^9.0.0",
+    "eslint-plugin-jsx-a11y": ">=6.0.0",
+    "eslint-plugin-react": ">=7.0.0",
+    "eslint-plugin-react-hooks": ">=5.0.0",
+    "typescript": ">=5.3.0"
+  },
+  "peerDependenciesMeta": {
+    "@tanstack/eslint-plugin-query": { "optional": true },
+    "eslint-plugin-jsx-a11y":        { "optional": true },
+    "eslint-plugin-react":           { "optional": true },
+    "eslint-plugin-react-hooks":     { "optional": true }
+  },
+  "devDependencies": {
+    "@tanstack/eslint-plugin-query":    "^5.100.10",
+    "@typescript-eslint/eslint-plugin": "^8.59.3",
+    "@typescript-eslint/parser":        "^8.59.3",
+    "eslint":                           "^9.39.4",
+    "eslint-plugin-functional":         "^9.0.0",
+    "eslint-plugin-jsx-a11y":           "^6.10.2",
+    "eslint-plugin-react":              "^7.37.5",
+    "eslint-plugin-react-hooks":        "^7.1.1",
+    "typescript":                       "^5.9.3"
+  }
+}

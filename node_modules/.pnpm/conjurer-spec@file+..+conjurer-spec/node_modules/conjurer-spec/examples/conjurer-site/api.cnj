@@ -1,0 +1,123 @@
+;; Defines boundary-first HTTP posture so handlers remain orchestration shells, not
+;; business-logic containers.
+(charter "Conjurer Demo Website — API"
+  :version    "0.3.0"
+  :created    "2025-11-06"
+  :updated    "2025-11-06"
+  :domain     "REST API; MCP proxy; grimoire catalog serving"
+
+  :decisions  [
+    {:date "2025-11-06"
+     :decision "Handlers are thin. Validate at boundary (Zod), call domain
+                functions or MCP adapter, return typed response.
+                No business logic in handlers."}
+    {:date "2025-11-06"
+     :decision "RFC 7807 error format throughout. Every error response is
+                {type, title, status, detail}."}
+    {:date "2025-11-06"
+     :decision "CONJURER_MCP_URL and CONJURER_MCP_API_KEY are Cloudflare Worker
+                secrets — never in source, never in response bodies."}]
+
+  :open       [
+    "Caching: should /api/grimoires responses be cached at the CF edge?
+     index.edn changes are infrequent — Cache-Control: max-age=3600 seems safe."]
+
+  :references ["domain.cnj"]
+  :outputs    {
+    :api (target :api
+           :language  :typescript
+           :framework :hono
+           :standard  :tsfpp
+           :produces  [:rest-api :openapi])})
+
+;; Freezes public response semantics so clients can rely on stable behavior while internals
+;; evolve.
+(shape endpoint-contract
+  :fields {}
+  :notes "
+    GET  /api/grimoires
+         200 → { grimoires: Grimoire[] }
+
+    GET  /api/grimoires/:name
+         200 → { grimoire: Grimoire, symbols: Symbol[] }
+         404 → RFC 7807 { type, title: 'Grimoire not found', status: 404 }
+
+    GET  /api/symbols?q=<query>&namespace=<prefix>
+         200 → { symbols: Symbol[], total: number }
+         400 → RFC 7807 (missing q param)
+
+    POST /api/playground
+         body → PlaygroundRequest (Zod validated)
+         200 → PlaygroundResponse
+         400 → RFC 7807 (validation error)
+         429 → RFC 7807 + Retry-After header (rate limited)
+         502 → RFC 7807 (MCP call failed)
+
+    All routes prefixed /api.
+    CORS: allow conjurer.dev and localhost:5173 only.")
+
+;; Binds runtime and folder structure decisions to the contract so generated work stays
+;; deployable on edge runtime constraints.
+(target :api
+  :language  :typescript
+  :framework :hono
+  :standard  :tsfpp
+  :produces  [:rest-api :openapi]
+  :scope     [:grimoire :symbol :playground-request :playground-response]
+  :from      conjurer-site-domain
+  :notes "
+    apps/api/src/
+    ├── index.ts              Hono app: register routes, cors, error handler
+    ├── routes/
+    │   ├── grimoires.ts      GET /api/grimoires, GET /api/grimoires/:name
+    │   ├── symbols.ts        GET /api/symbols
+    │   └── playground.ts     POST /api/playground
+    └── adapters/
+        └── mcp-client.ts     wraps @tsfpp/agents — calls conjurer-mcp
+
+    Handler pattern — thin shell:
+    ─────────────────────────────────────────────────────────────
+    import { Hono } from 'hono'
+    import { zValidator } from '@hono/zod-validator'
+    import { playgroundRequestSchema } from '@conjurer-site/domain'
+    import { callMcpInterpret } from '../adapters/mcp-client'
+
+    const playground = new Hono()
+
+    playground.post(
+      '/',
+      zValidator('json', playgroundRequestSchema),
+      async (c) => {
+        const body = c.req.valid('json')
+
+        const result = await callMcpInterpret({
+          input: body.input,
+          context: body.context ?? {}
+        })
+
+        if (result.isErr()) {
+          return c.json({
+            type: 'https://conjurer.dev/errors/mcp-failure',
+            title: 'Interpretation failed',
+            status: 502,
+            detail: result.error.message,
+          }, 502)
+        }
+
+        return c.json(result.value)
+      }
+    )
+    ─────────────────────────────────────────────────────────────
+    No logic in handlers. Domain functions and MCP adapter do the work.
+    Cloudflare Workers runtime: no Node.js APIs, no fs, no path.
+    CONJURER_MCP_URL and CONJURER_MCP_API_KEY injected from CF secrets.")
+
+;; Demonstrates how policy rules in the domain translate into a concrete endpoint behavior
+;; requirement.
+(r/derive "What rate limiting must the playground endpoint implement?"
+  :from    conjurer-site-domain
+  :using   playground-rules
+  :mode    :deductive
+  :explain false
+  :surface [:conclusions])
+

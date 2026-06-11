@@ -1,0 +1,142 @@
+;;; vscode-extension.cnj
+;;; The VS Code extension (VSIX) — companion UI over the shared core.
+;;; References the project anchor for charter, assets, and assumptions.
+;;; Models: the extension's user-facing features (Section V) and its module
+;;; decomposition + bundling strategy (Section VI).
+
+(charter "Conjurer VS Code Extension"
+  :version  "0.1.0"
+  :created  "2026-06-05"
+  :updated  "2026-06-05"
+  :domain   "A VS Code extension giving .cnj and Conjurer authors inline,
+             editor-native access to the spec — CodeLens actions, hover docs, and
+             commands — built on the same @conjurer/core as the MCP server."
+  :language :en
+  :goals [
+    "Surface spec content where the author already is: hovering a symbol shows its
+     synopsis; a CodeLens above a charter offers validate-and-summarise; commands
+     expose lookup and section retrieval — all without leaving the editor."
+    "Author the extension as modular TypeScript bundled to a single
+     dist/extension.js, fixing the prior single-source-file extension.js."]
+  :audience {:primary :senior-engineer}
+  :decisions [
+    {:date "2026-06-05"
+     :decision "Source is modular TypeScript under the TSF++ limit; esbuild bundles
+                it to dist/extension.js. The single-file output is a build artefact.
+                This is the explicit fix for the prior 'one giant extension.js'."}
+    {:date "2026-06-05"
+     :decision "The extension depends on @conjurer/core directly for v1 (in-process
+                lookup/parse/validate), NOT by spawning the MCP server. Rationale:
+                simpler, no subprocess lifecycle, and the core is already the shared
+                home of the logic. Talking MCP to a spawned server is a later option
+                if the extension ever needs tool parity with external agents."}]
+  :open [
+    "Should CodeLens validate run on every save (live) or only on demand
+     (command/lens click)? Live is nicer but needs debouncing."
+    "Marketplace publication vs local VSIX install for v1 — likely local-only,
+     matching the solo, local-first stance."]
+  :outputs {
+    :vscode-extension (target :typescript :standard :tsf-plus-plus)}
+  :references ["conjurer-mcp.cnj"]
+  :tags [:vscode :extension :typescript :developer-experience])
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Section V — Domain work: extension features
+;;; ─────────────────────────────────────────────────────────────────
+
+(spell hover-symbol
+  :feature     "Hover documentation"
+  :purpose     "Hovering a Conjurer symbol in a .cnj or grimoire shows its synopsis,
+                signature, and key-params — pulled from the core, no file opened"
+  :trigger     "editor hover over a recognised symbol token"
+  :backed-by   :symbol-index
+  :shows       [:synopsis :signature :key-params]
+  :determinism :pure)
+
+(spell codelens-charter
+  :feature     "Charter CodeLens"
+  :purpose     "A CodeLens above a (charter ...) form offering inline actions:
+                validate this .cnj, summarise the charter, list open questions"
+  :trigger     "a charter form detected at the top of a .cnj"
+  :actions     ["Validate .cnj" "Summarise charter" "Show open questions"]
+  :backed-by   :validation   ;; and cnj-model for the summary
+  :determinism :pure)
+
+(spell codelens-symbol
+  :feature     "Symbol CodeLens"
+  :purpose     "A CodeLens above a recognised construct invocation offering
+                'Show examples' and 'Show rationale', fetching only that section"
+  :trigger     "a known symbol invocation in a .cnj"
+  :actions     ["Show examples" "Show rationale" "Open grimoire section"]
+  :backed-by   :spec-reader
+  :determinism :pure)
+
+(spell command-lookup
+  :feature     "Command: Conjurer — Look up symbol"
+  :purpose     "Command-palette entry that prompts for a symbol and shows its full
+                record in a panel; the editor-native twin of lookup_symbol"
+  :trigger     "command palette"
+  :backed-by   :symbol-index
+  :determinism :pure)
+
+(spell command-validate
+  :feature     "Command: Conjurer — Validate current .cnj"
+  :purpose     "Validate the active .cnj and surface violations as editor
+                diagnostics (squiggles + Problems panel)"
+  :trigger     "command palette or on-save (see :open)"
+  :backed-by   :validation
+  :produces    [:diagnostics]
+  :determinism :pure)
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Section VI — Module decomposition and bundling (TSF++: ≤ 400 lines/module)
+;;; ─────────────────────────────────────────────────────────────────
+
+(target :vscode-extension
+  :language  :typescript
+  :framework :vscode-extension-api
+  :standard  :tsf-plus-plus
+  :from      :shared-core
+  :via       :direct
+  :produces  [:vsix :bundled-extension]
+  :bundling  {:tool :esbuild
+              :entry "src/extension.ts"
+              :output "dist/extension.js"
+              :note "Single-file output is a BUILD ARTEFACT. Source stays modular.
+                     external: ['vscode']; platform: 'node'; format: 'cjs'."}
+  :modules [
+    {:module "extension.ts"
+     :responsibility "activate()/deactivate() entry: register providers and
+                      commands, then nothing else. Wiring only."
+     :exports ["activate" "deactivate"]
+     :est-lines 90}
+    {:module "providers/hover.ts"
+     :responsibility "HoverProvider — resolve the token under the cursor to a
+                      symbol record via core, render markdown."
+     :exports ["ConjurerHoverProvider"]
+     :est-lines 130}
+    {:module "providers/codelens.ts"
+     :responsibility "CodeLensProvider — detect charter and symbol forms, emit the
+                      lenses and their command bindings."
+     :exports ["ConjurerCodeLensProvider"]
+     :est-lines 200}
+    {:module "commands/lookup.ts"
+     :responsibility "Look-up and section commands; render results in a webview or
+                      output channel."
+     :exports ["registerLookupCommands"]
+     :est-lines 160}
+    {:module "commands/validate.ts"
+     :responsibility "Validate command + on-save hook; map core Violations to
+                      vscode.Diagnostic."
+     :exports ["registerValidateCommands"]
+     :est-lines 150}
+    {:module "core-bridge.ts"
+     :responsibility "Thin adapter wrapping @conjurer/core for the extension:
+                      one place that constructs the SpecReader/SymbolIndex and
+                      hands them to providers/commands."
+     :exports ["createCoreBridge" "CoreBridge"]
+     :est-lines 110}])
+
+;;; As with the server, no module nears the limit. The largest (codelens.ts, ~200)
+;;; has ample headroom, and the single dist/extension.js is produced by esbuild —
+;;; not authored by hand.

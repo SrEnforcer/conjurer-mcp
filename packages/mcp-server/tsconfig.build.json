@@ -1,0 +1,13 @@
+{
+  "extends": "@tsfpp/tsconfig/base",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["node"]
+  },
+  "include": ["src"],
+  "exclude": ["src/**/tests/**"],
+  "references": [
+    { "path": "../shared-core" }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "name": "@tsfpp/tsconfig",
+  "version": "1.0.0",
+  "description": "Shared TypeScript compiler configuration presets for TSF++ projects",
+  "keywords": [
+    "tsconfig",
+    "typescript",
+    "tsfpp",
+    "functional",
+    "strict"
+  ],
+  "homepage": "https://github.com/tsfpp/tsconfig#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tsfpp/tsconfig.git"
+  },
+  "license": "MIT",
+  "exports": {
+    "./base": "./tsconfig.base.json",
+    "./lib":  "./tsconfig.lib.json",
+    "./app":  "./tsconfig.app.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "tsconfig.base.json",
+    "tsconfig.lib.json",
+    "tsconfig.app.json",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

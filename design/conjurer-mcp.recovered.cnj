@@ -1,0 +1,293 @@
+;;; conjurer-mcp.recovered.cnj
+;;; Recovered baseline synthesized from ../conjurer-mcp.
+;;; Confidence legend used in decisions:
+;;;   :attested           - directly evidenced in source/config/docs
+;;;   :strongly-inferred  - highly supported but not explicitly stated as intent
+;;;   :speculative        - plausible but insufficiently evidenced; moved to :open
+
+(charter "conjurer-mcp (recovered baseline)"
+  :version "0.0.0-recovered"
+  :created "2026-06-06"
+  :updated "2026-06-06"
+  :domain "A TypeScript Model Context Protocol server for Conjurer that provides symbol routing, grimoire retrieval, workspace .cnj context services, dependency-aware resolve/evaluate flows, and stdio plus Streamable HTTP transports."
+  :language :en
+
+  :goals [
+    "Serve targeted Conjurer specification context to MCP clients without requiring full-spec loading on every call."
+    "Support deterministic workflow tools for parse, resolve, evaluate, explain, and topology analysis, with project-aware dependency/caching behavior preserved."
+    "Maintain workspace-aware .cnj state, dependency graphs, unresolved diagnostics, and stale artifact visibility."
+    "Recover and preserve declared versus enforced stack rules for dependencies, runtime, build, and linting policy."
+    "Package as a local-first Node CLI (npx conjurer-mcp) with bundled conjurer-spec assets and optional workspace integration."
+    "Keep implementation testable with extensive TypeScript unit tests across services and runtime glue."]
+
+  :audience {:primary :engineer
+             :secondary [:tooling-engineer :ai-agent-developer]}
+
+  :decisions [
+    {:date "2026-06-06"
+     :decision "Implemented as a TypeScript MCP server using @modelcontextprotocol/sdk with zod-based tool schemas and explicit runtime registration."
+     :recovered :attested
+    :evidence ["../conjurer-mcp/package.json dependencies include @modelcontextprotocol/sdk and zod"
+         "../conjurer-mcp/src/index/server-runtime.ts imports McpServer and registers tools"]}
+    {:date "2026-06-06"
+     :decision "Support both local stdio and hosted Streamable HTTP transports."
+     :recovered :attested
+    :evidence ["../conjurer-mcp/package.json scripts include start and start:http"
+         "../conjurer-mcp/src/http-bridge.ts wires StreamableHTTPServerTransport and /mcp route"]}
+    {:date "2026-06-06"
+     :decision "Bundle conjurer-spec into assets for distributable CLI execution, while still allowing skill-path overrides."
+     :recovered :attested
+    :evidence ["../conjurer-mcp/package.json build script runs bundle:spec copying node_modules/conjurer-spec"
+         "../conjurer-mcp/README.md documents --skill-path override"]}
+    {:date "2026-06-06"
+     :decision "Adopt workspace-level context parsing and dependency-aware evaluation with cache invalidation based on context fingerprints."
+     :recovered :attested
+    :evidence ["../conjurer-mcp/src/services/workspace-context-service.ts defines computeCacheKey and stale artifact tracking"
+         "../conjurer-mcp/README.md tool/resource list includes resolve/evaluate, dependency graph, unresolved diagnostics"]}
+    {:date "2026-06-06"
+     :decision "Use functional Result/Option style pervasively with controlled boundary deviations in adapter layers."
+     :recovered :strongly-inferred
+    :evidence ["../conjurer-mcp/src/index/server-runtime.ts and ../conjurer-mcp/src/http-bridge.ts use @tsfpp/prelude and Result/Option flow"
+         "../conjurer-mcp/DEVIATIONS.md and DEVIATION markers document intentional boundary exceptions"]}
+    {:date "2026-06-06"
+     :decision "Evolve from an earlier imperfect architecture toward modularized services and verification-heavy development."
+     :recovered :strongly-inferred
+    :evidence ["../conjurer-mcp/docs/improvement.plan.md and ../conjurer-mcp/design/improvement.plan.v2.md capture staged improvement intent"
+          "../conjurer-mcp/src layout split across services, index helpers, parser, and tests"]}
+        {:date "2026-06-06"
+      :decision "Keep project-aware workspace context, dependency graphing, resolve/evaluate planning, and cache invalidation behavior as core functionality."
+      :recovered :attested
+        :evidence ["../conjurer-mcp/src/services/workspace-context-service.ts and related tests"
+          "../conjurer-mcp/README.md documents resolve/evaluate, dependency graph, unresolved diagnostics"]}
+        {:date "2026-06-06"
+      :decision "Do not embed an LLM in the MCP server at this stage; generation/materialization intelligence remains in the local IDE agent."
+      :recovered :attested
+        :evidence ["Practitioner direction on 2026-06-06 for this recovery"
+          "../conjurer-mcp/README.md positions server as deterministic tooling layer"]}
+        {:date "2026-06-06"
+      :decision "Architecture direction for next materialization: keep server-centric design manifests in src/ and place VSIX extension implementation under packages/."
+      :recovered :attested
+        :evidence ["Practitioner direction on 2026-06-06 for this recovery"]}]
+
+  :open [
+    "Which prior features are required for parity versus candidates for deprecation in this new materialization?"
+    "Should HTTP transport remain first-class in the next design iteration or become an optional package/module?"
+    "Is the current workspace context service too broad and in need of bounded-context splits before further feature growth?"
+    "What rationale drove specific deviation rules and thresholds historically? (partially unreconstructable from current evidence)"
+    "How should legacy .ai compatibility expectations documented in ../conjurer-mcp/ai.md influence this repository's customization layout?"
+    "If materialise/rewrite capabilities are retained, what strictly deterministic boundary should they have without introducing an in-server LLM?"
+    "When a future decision requires in-server LLM support, what explicit trigger criteria would justify changing the no-LLM constraint?"]
+
+  :outputs {
+    :mcp-server (target :typescript :standard :team-standard)
+    :stack-report :conjurer-only
+    :recovery-report :conjurer-only}
+
+  :references [
+    "../conjurer-mcp/README.md"
+    "../conjurer-mcp/package.json"
+    "../conjurer-mcp/ai.md"
+    "../conjurer-mcp/DEVIATIONS.md"
+    "../conjurer-mcp/docs/improvement.plan.md"
+    "../conjurer-mcp/design/improvement.plan.v2.md"
+    "../conjurer-mcp/src/index/server-runtime.ts"
+    "../conjurer-mcp/src/http-bridge.ts"
+    "../conjurer-mcp/src/services/workspace-context-service.ts"
+    "../conjurer-mcp/docs/mcp-design-requirements.md"
+    "https://www.npmjs.com/package/@tsfpp/eslint-config"
+    "https://www.npmjs.com/package/@tsfpp/tsconfig"
+    "https://www.npmjs.com/package/@tsfpp/standard"]
+  :tags [:recovered :mcp :typescript :conjurer :workspace-context])
+
+(asset :team-standard
+  :type :code-standard
+  :description "Team standard is @tsfpp/standard (normative TSF++ specification and profiles)."
+  :confidence :attested
+  :language :typescript
+  :location "https://www.npmjs.com/package/@tsfpp/standard"
+  :enforces [
+    "Base TSF++ standard from spec/CODING_STANDARD.md applies to all TypeScript source"
+    "Profile standards apply by scope (API, React, Data, Config, Log, Test, Annotation, Security)"
+    "TSF++/Test and TSF++/Annotate profiles are cross-cutting"
+    "Deviation handling follows the normative procedure defined in the standard package"]
+  :prohibits [
+    "Project-local redefinition of coding standard outside @tsfpp/standard"
+    "Undocumented divergence from normative TSF++ rules and profiles"]
+  :applies-to [:mcp-server]
+  :active-in :project)
+
+(asset :implementation-conventions-recovered
+  :type :code-standard
+  :description "Recovered implementation conventions from ../conjurer-mcp (project-practised, not normative source)."
+  :recovered-from :conjurer-mcp-conventions
+  :confidence :strongly-inferred
+  :language :typescript
+  :enforces [
+    "Prefer named exports and explicit type aliases/interfaces at module boundaries"
+    "Use Result/Option for service and runtime return flows instead of implicit exception control"
+    "Keep tool contracts schema-driven with zod and MCP registerTool metadata"
+    "Cover service modules with unit tests (vitest) and preserve deterministic utility behavior"]
+  :prohibits [
+    "Logging to stdout on stdio transport"
+    "Silent context-cache invalidation without stale diagnostics"]
+  :applies-to [:mcp-server]
+  :active-in :project)
+
+(asset :stack-standard
+  :type :code-standard
+  :description "Recovered stack policy from ../conjurer-mcp manifests and enforcement config (x/recover-stack)."
+  :confidence :attested
+  :language :typescript
+  :enforces [
+    "Node runtime minimum: >=18"
+    "TypeScript build with tsc and noEmit typecheck gate"
+    "ESLint-based lint gate over src/**/*.ts"
+    "Spec bundling in package build lifecycle for distributable artifact parity"]
+  :prohibits [
+    "Runtime transport logs to stdout in stdio mode"
+    "Unpinned stack drift without explicit dependency/config update"]
+  :applies-to [:mcp-server]
+  :active-in :project)
+
+(asset :package-dependencies-recovered
+  :type :code-standard
+  :description "Recovered declared runtime and development dependency set from ../conjurer-mcp/package.json."
+  :confidence :attested
+  :language :typescript
+  :location "../conjurer-mcp/package.json"
+  :enforces [
+    "dependencies: @modelcontextprotocol/sdk ^1.29.0"
+    "dependencies: @tsfpp/prelude ^1.7.0"
+    "dependencies: conjurer-spec file:../conjurer-spec"
+    "dependencies: zod ^4.4.3"
+    "devDependencies: @tsfpp/agents ^1.9.0"
+    "devDependencies: @tsfpp/eslint-config ^1.0.1"
+    "devDependencies: @tsfpp/mcp-server ^1.0.1"
+    "devDependencies: @tsfpp/standard ^1.3.0"
+    "devDependencies: @tsfpp/tsconfig ^1.0.0"
+    "devDependencies: @types/node ^20.19.41"
+    "devDependencies: @typescript-eslint/eslint-plugin ^8.60.0"
+    "devDependencies: @typescript-eslint/parser ^8.60.0"
+    "devDependencies: eslint ^10.4.0"
+    "devDependencies: msw ^2.14.6"
+    "devDependencies: tsx ^4.22.3"
+    "devDependencies: typescript ^5.9.3"
+    "devDependencies: vitest ^4.1.7"]
+  :prohibits [
+    "Undeclared production runtime dependencies"
+    "Untracked dependency drift between package manifest and stack assumptions"]
+  :applies-to [:mcp-server]
+  :active-in :project)
+
+(asset :tsfpp-eslint-base-recovered
+  :type :code-standard
+  :description "Recovered TSF++ ESLint base ruleset extracted from @tsfpp/eslint-config (dist/base.js)."
+  :confidence :attested
+  :language :typescript
+  :location "https://www.npmjs.com/package/@tsfpp/eslint-config"
+  :enforces [
+    "@typescript-eslint/switch-exhaustiveness-check"
+    "@typescript-eslint/consistent-type-definitions (type)"
+    "@typescript-eslint/no-explicit-any"
+    "@typescript-eslint/no-non-null-assertion"
+    "@typescript-eslint/consistent-type-assertions (never)"
+    "functional/no-let"
+    "functional/prefer-readonly-type"
+    "functional/immutable-data"
+    "functional/no-classes"
+    "functional/no-this-expressions"
+    "functional/no-loop-statements"
+    "functional/no-throw-statements"
+    "@typescript-eslint/explicit-function-return-type"
+    "max-params (<=3)"
+    "complexity (<=10)"
+    "max-depth (<=4)"
+    "max-lines-per-function (<=40)"
+    "@typescript-eslint/no-floating-promises"
+    "@typescript-eslint/no-misused-promises"
+    "@typescript-eslint/strict-boolean-expressions"
+    "@typescript-eslint/consistent-type-imports"
+    "prefer-const"
+    "no-var"
+    "no-param-reassign"
+    "eqeqeq"
+    "max-lines (<=400)"
+    "@typescript-eslint/no-unused-vars (_ prefix allowed)"]
+  :prohibits [
+    "enum declarations"
+    "namespace declarations"
+    "instanceof checks"
+    "new expressions outside adapter boundaries"
+    "any types"
+    "non-null assertions (!)"]
+  :applies-to [:mcp-server]
+  :active-in :project)
+
+(asset :tsfpp-tsconfig-recovered
+  :type :code-standard
+  :description "Recovered TSF++ TypeScript compiler policy extracted from @tsfpp/tsconfig (base/app/lib)."
+  :confidence :attested
+  :language :typescript
+  :location "https://www.npmjs.com/package/@tsfpp/tsconfig"
+  :enforces [
+    "strict mode enabled"
+    "noUncheckedIndexedAccess enabled"
+    "exactOptionalPropertyTypes enabled"
+    "noImplicitOverride enabled"
+    "noFallthroughCasesInSwitch enabled"
+    "useUnknownInCatchVariables enabled"
+    "noPropertyAccessFromIndexSignature enabled"
+    "verbatimModuleSyntax enabled"
+    "isolatedModules enabled"
+    "noImplicitReturns enabled"
+    "noUnusedLocals enabled"
+    "noUnusedParameters enabled"
+    "moduleResolution = Bundler"
+    "app profile: noEmit true"
+    "lib profile: declaration + declarationMap + composite + sourceMap + dist outDir"]
+  :prohibits [
+    "non-strict compiler mode"
+    "implicit module rewrite assumptions incompatible with verbatimModuleSyntax"
+    "unchecked index access patterns"]
+  :applies-to [:mcp-server]
+  :active-in :project)
+
+(assume recovered-stack-infrastructure
+  :environment :local-node-workstation
+  :infrastructure {:runtime :node
+                   :runtime-version ">=18"
+                   :language :typescript
+                   :package-manager :pnpm
+                   :build :tsc
+                   :lint :eslint
+                   :test :vitest
+                   :distribution :npm-cli}
+  :constraints [
+    "Toolchain integrity is enforced by package scripts (build, lint, typecheck, test)."
+    "Conjurer spec assets are bundled for publish-time runtime availability."])
+
+(target :mcp-server
+  :language :typescript
+  :framework :mcp-sdk
+  :recovered :attested
+  :evidence ["Scope inferred from ../conjurer-mcp/README.md tool/resource surface and service module layout under ../conjurer-mcp/src"]
+  :produces [:cli-server :http-bridge :test-suite]
+  :layout {:primary-root "src/"
+           :design-manifests "src/**/*.cnj"}
+  :scope [
+    :catalog-routing
+    :workspace-context
+    :resolve-evaluate
+    :artifact-cache
+    :topology-lint
+    :editor-action-contracts]
+  :via :direct)
+
+(target :vscode-extension
+  :language :typescript
+  :framework :vscode-extension-api
+  :recovered :attested
+  :produces [:vsix]
+  :layout {:primary-root "packages/vscode-extension/"}
+  :scope [:commands :editor-integration]
+  :via :direct)

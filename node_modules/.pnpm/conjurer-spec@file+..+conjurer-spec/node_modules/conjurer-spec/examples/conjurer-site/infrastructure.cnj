@@ -1,0 +1,75 @@
+;; Captures delivery and environment assumptions so reliability controls are explicit
+;; before rollout automation is generated.
+(charter "Conjurer Demo Website — Infrastructure"
+  :version    "0.2.0"
+  :created    "2025-11-06"
+  :updated    "2025-11-06"
+  :domain     "CI/CD; Cloudflare deployment; environment management"
+
+  :decisions  [
+    {:date "2025-11-06"
+     :decision "CI runs on every PR and push: typecheck → lint → test → build.
+                All steps must pass. No merge without green."}
+    {:date "2025-11-06"
+     :decision "Deploy on push to main only. Cloudflare Pages for web,
+                Cloudflare Workers for API. Atomic: both deploy together."}]
+
+  :references []
+  :outputs    {
+    :ci-cd (target :ci-cd :language :yaml :produces [:github-actions])
+    :env   (target :env-config :language :markdown :produces [:env-documentation])})
+
+;; Establishes quality gates and deployment order to avoid shipping partial updates across
+;; web and API surfaces.
+(target :ci-cd
+  :language  :yaml
+  :produces  [:github-actions]
+  :notes "
+    .github/workflows/ci.yml — runs on every push and PR:
+    ─────────────────────────────────────────────────────
+    1. pnpm install --frozen-lockfile
+    2. pnpm typecheck          (tsc --noEmit across all packages)
+    3. pnpm lint               (eslint with @tsfpp/eslint-config)
+    4. pnpm test               (vitest run — domain package tests)
+    5. pnpm build              (vite build apps/web)
+    ─────────────────────────────────────────────────────
+    Node 22, pnpm 9, ubuntu-latest.
+
+    .github/workflows/deploy.yml — runs on push to main only:
+    ─────────────────────────────────────────────────────
+    1. Run all CI steps (reuse ci.yml via workflow_call)
+    2. Deploy apps/web → Cloudflare Pages (wrangler pages deploy)
+    3. Deploy apps/api → Cloudflare Workers (wrangler deploy)
+    ─────────────────────────────────────────────────────
+    Secrets required in GitHub Actions:
+      CF_API_TOKEN          Cloudflare API token with Pages + Workers permissions
+      CF_ACCOUNT_ID         Cloudflare account ID
+
+    Preview deployments: every PR gets a CF Pages preview URL automatically.
+    No separate preview workflow needed — CF Pages handles this.")
+
+;; Documents secret boundaries and config ownership to prevent accidental leakage between
+;; server and browser contexts.
+(target :env-config
+  :language  :markdown
+  :produces  [:env-documentation]
+  :notes "
+    .env.example — documents required variables (never commit actual values):
+    ─────────────────────────────────────────────────────────────────
+    # apps/api — set as Cloudflare Worker secrets (not in wrangler.toml)
+    CONJURER_MCP_URL=          # hosted conjurer-mcp endpoint
+    CONJURER_MCP_API_KEY=      # server-side only — never in browser bundle
+
+    RATE_LIMIT_WINDOW_MS=600000   # 10 minutes
+    RATE_LIMIT_MAX_REQUESTS=20
+
+    # apps/web — injected at build time via Vite (VITE_ prefix = public)
+    VITE_API_BASE_URL=            # https://api.conjurer.dev or http://localhost:8787
+
+    # Local development only
+    VITE_PLAYGROUND_ENABLED=true
+    ─────────────────────────────────────────────────────────────────
+    CONJURER_MCP_API_KEY is a Worker secret: set via wrangler secret put.
+    It is never in wrangler.toml, never in .env files, never in logs.
+    Cloudflare Worker environment variables are set in the CF dashboard
+    or via wrangler CLI for secrets.")

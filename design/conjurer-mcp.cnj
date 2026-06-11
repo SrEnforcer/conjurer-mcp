@@ -1,0 +1,771 @@
+;;; conjurer-mcp.cnj
+;;; Project anchor for the Conjurer MCP toolchain.
+;;; This file holds the charter, shared assets, and operative constraints.
+;;; Per-deliverable domain work lives in the referenced .cnj files:
+;;;   mcp-server.cnj       — the stdio MCP server
+;;;   vscode-extension.cnj — the VS Code extension (VSIX)
+;;; The shared core (parser, types, spec-reader) is modelled in mcp-server.cnj
+;;; Section VI, since the server is its primary consumer and the extension
+;;; depends on it.
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Section 1 — Charter
+;;; ─────────────────────────────────────────────────────────────────
+
+(charter "Conjurer MCP Toolchain"
+  :version  "0.1.0"
+  :created  "2026-06-05"
+  :updated  "2026-06-09"   ;; validate_symbol_usage implemented
+  :domain   "A local-first Model Context Protocol server, and companion VS Code
+             extension, that serve targeted Conjurer specification content —
+             symbols, sections, examples, validation — to an IDE coding agent so
+             the agent need not load the full spec into its context window."
+  :language :en
+
+  :goals [
+    "Reduce the context/token load on a local IDE agent working with Conjurer:
+     return precisely the symbol, section, example, or validation result needed,
+     instead of forcing the agent to read whole grimoire files."
+    "Parse and validate .cnj files structurally, so the agent inherits
+     correctness checks rather than re-deriving the spec's rules each session."
+    "Run locally over stdio with no external hosting and no LLM inside the
+     server — all intelligence stays in the calling agent; the server is a
+     deterministic retrieval, parse, and validation service."
+    "Keep the responsibility split explicit: deterministic/mechanical concerns
+     (parse, resolve, dependency graphing, fingerprinted cache, validation,
+     routing) remain in the MCP server; judgement/generation stays in the local
+     IDE LLM."
+    "Ship as a modular TypeScript codebase (TSF++), never again a single
+     multi-thousand-line file, with the VS Code extension sharing the server's
+     core logic rather than duplicating it."
+    "Support the exhume (reverse) workflow as well as the forward one: once built,
+     the server serves exhume-grimoire content for targeted retrieval and validates
+     the .cnj files that exhume recovers from existing code. The server is a
+     two-way tool — it serves spec forward to an authoring agent, and supports a
+     recovering agent in reverse."]
+
+  :audience {:primary   :senior-engineer
+             :secondary [:engineer]}
+
+  :decisions [
+    {:date "2026-06-05"
+     :decision "Three-file .cnj decomposition (option 3): this project anchor,
+                plus mcp-server.cnj and vscode-extension.cnj. The file split
+                mirrors the monorepo package split, so each real deliverable has
+                its own charter outputs entry and target declaration. Chosen over
+                a single .cnj because the server and extension are genuinely
+                separate artefacts that nonetheless share a core."}
+    {:date "2026-06-05"
+     :decision "No LLM integration inside the MCP server. The server is purely
+                deterministic: retrieval, EDN/s-expression parsing, and rule-based
+                validation. All generative/inferential work remains the calling
+                agent's job. Rationale: keeps the server small, testable, fast,
+                and free of API keys or model dependencies for a solo, local,
+                stdio-first deployment."}
+    {:date "2026-06-06"
+     :decision "Token economy is a first-class design driver: the server must
+          return the smallest useful slice (targeted symbol/section data,
+          resolved context, structured diagnostics) so the local LLM does
+          not re-load or re-derive full project/spec context on each turn."}
+    {:date "2026-06-06"
+     :decision "Workspace memory belongs in deterministic server state: parsed
+          .cnj set, dependency graph, unresolved diagnostics, and stale
+          cache visibility persist across requests and are re-queryable by
+          the IDE LLM under context-window pressure."}
+        {:date "2026-06-06"
+      :decision "Future materialisation output includes a top-level package.json
+        by default, with project name conjurer-mcp unless explicitly
+        overridden by user input or a selected charter profile."}
+            {:date "2026-06-06"
+          :decision "Materialisation terminology is fixed: deterministic preflight
+            yields a materialisation plan; semantic generation yields
+            materialisation output files. package.json is emitted at output root
+            for TypeScript/Node targets, defaulting to name conjurer-mcp with
+            version/domain-derived metadata unless overridden."}
+    {:date "2026-06-05"
+     :decision "Fastest-lookup strategy: parse index.edn once at startup into an
+                in-memory symbol map; lazy-load and cache grimoire files on first
+                access; invalidate a cached file by mtime check. No per-call disk
+                read after warmup. index.edn is the routing layer; grimoire files
+                are the depth layer, fetched only when depth is requested."}
+    {:date "2026-06-05"
+     :decision "A real EDN / s-expression parser (not regex section-matching).
+                It serves three consumers at once: reading index.edn, parsing
+                .cnj files (parse_cnj), and underpinning validation (validate_cnj).
+                One robust parser lowers the net cost of the whole parse/validate
+                cluster. A prior project proved this approach robust."}
+    {:date "2026-06-05"
+     :decision "v1 tool surface: the full retrieval cluster (lookup_symbol,
+                search_symbols, get_grimoire_section, get_examples, list_grimoire),
+                plus parse_cnj, read_charter, and validate_cnj. parse_cnj is
+                promoted into v1 because the EDN parser exists anyway for
+                validation, so exposing it as a tool is nearly free."}
+    {:date "2026-06-06"
+     :decision "v1 tool surface widened with a project-aware deterministic cluster
+                (Cluster D): resolve, evaluate, project_lint_topology, and
+                materialise_preflight. These were not in the original eight but
+                follow directly from the token-economy and workspace-memory
+                decisions above: a local agent under context pressure benefits far
+                more from a server that returns resolved dependency order, cached
+                evaluation, structured topology diagnostics, and a materialisation
+                preflight than from retrieval alone. All remain deterministic
+                (parse, resolve, cache, diagnose) — no generation, consistent with
+                the no-LLM-in-server rule. The exhumed prior codebase showed these
+                concerns were real (it had resolve/evaluate flows), which is why
+                they are recovered into v1 rather than deferred."}
+    {:date "2026-06-05"
+     :decision "VS Code extension authored as modular TypeScript and bundled with
+                esbuild to dist/extension.js. The single-file bundle is a build
+                artefact, not source; source obeys the same module-size limits as
+                the server. Fixes the prior single extension.js problem."}
+    {:date "2026-06-05"
+     :decision "Monorepo with a shared @conjurer/core package (parser, types,
+                spec-reader) consumed by both the server and the extension, so
+                parser and type definitions are never duplicated."}
+    {:date "2026-06-05"
+     :decision "The server is a TWO-WAY tool, not only a forward spec-server. The
+                addition of the exhume grimoire (code → spec) gives it a reverse
+                role: serving exhume-grimoire content for targeted retrieval, and
+                validating the .cnj files an exhume workflow recovers from existing
+                code. validate_cnj therefore gains a :mode (:authored | :recovered)
+                so it accepts a recovered .cnj — one carrying :recovered-marked
+                decisions, a 0.0.0-recovered version, and speculative intent demoted
+                to :open questions — as valid rather than malformed. This is a
+                property of the BUILT server, for use AFTER the bootstrap."}
+    {:date "2026-06-05"
+     :decision "The bootstrap is manual and tool-less. The .cnj files for this very
+                project are updated by exhuming the prior conjurer-mcp codebase purely
+                through LLM reasoning — no server, no validate_cnj, because those do
+                not exist yet — and validated by hand. The server is built afterwards
+                FROM the updated .cnj. The server never uses itself during its own
+                bootstrap; there is no chicken-and-egg. validate_cnj :mode :recovered
+                exists for recovering OTHER codebases later, not for this project's
+                own creation."}
+    {:date "2026-06-06"
+     :decision "Confidence policy for recovered design is strict: speculative
+                recovery never enters :decisions and is always emitted to :open.
+                This follows Conjurer philosophy and avoids convenience-driven
+                fiction in project memory."}
+    {:date "2026-06-06"
+     :decision "stdio is the only transport for v1; HTTP is deliberately dropped.
+                The exhumed prior codebase carried a Streamable HTTP transport, but
+                that was a workaround for a configuration bug that broke local stdio,
+                not a wanted capability. With stdio working correctly there is no
+                reason to carry HTTP for a solo, local deployment. Recorded
+                explicitly so the recovery observation 'the old project had HTTP'
+                does not later read as a missing feature — it was a symptom, now
+                resolved, not a requirement."}
+    {:date "2026-06-07"
+     :decision "First built server verified against real runtime output; seven
+                findings from two output passes (execute + materialise preflight)
+                all closed. The two true bugs: nested EDN in :decisions was
+                whitespace-tokenised (fixed with a recursive-descent EDN parser, so
+                nested :evidence vectors now survive the round-trip — the parser is
+                finally the real parser the design called for), and the charter
+                summary leaked the workspace aggregate into every file (fixed with a
+                per-file getFileCharterSummary). The materialise preflight resolver
+                gained the wiring it lacked: cross-target :from dependencies,
+                asset-constraint application via :applies-to, and real module paths
+                from :modules (replacing the generic generated/{kind}.txt fallback).
+                The :mcp-server target in mcp-server.cnj was given the explicit
+                :produces it lacked. 158/158 tests pass, clean build."}
+    {:date "2026-06-07"
+     :decision "Finding worth keeping: all five resolver gaps shared one shape —
+                'data present, unread'. The .cnj declarations (:from, :applies-to,
+                :modules) already carried the information; the resolver simply did
+                not read it. The gaps were consistently on the implementation side,
+                not the design side — the spec layer ran ahead of the resolver. This
+                is the reassuring direction for a gap to run (implementation lagging
+                a sound design, not implementation doing what the design never
+                sanctioned), and it means the remaining work on the resolver is
+                wiring, not redesign."}
+    {:date "2026-06-09"
+     :decision "Three short-term enhancements added to the v1 server design and
+                recorded in mcp-server.cnj. (1) Intent topology validation
+                recovered from the prior codebase into validate_cnj: the legacy
+                intent-topology.ts checked that :requires items appear in
+                :manifest, :deferred items do not, and no item is both — this is
+                real constraint checking that was in the first build but not
+                carried forward into the new spell's :checks list.  (2) MCP
+                grimoire resources settled: expose conjurer://grimoire/<name> as
+                protocol resources alongside the tool surface. Grimoires are
+                addressable read-only data; the MCP resource type is the correct
+                abstraction. Tools retain targeted retrieval; resources add
+                browsability. The open question in mcp-server.cnj is closed.
+                (3) check_symbol_coverage added as a new Cluster-A tool: computes
+                the set-intersection of a .cnj's referenced symbols against
+                index.edn, grouped by grimoire, and reports utilisation density
+                and gaps. Pure function over two already-parsed structures; no
+                new infrastructure. All three remain deterministic and consistent
+                with the no-LLM-in-server rule."}
+    {:date "2026-06-09"
+     :decision "Distribution scope fixed for v1: local build consumption
+                (workspace path or npm link) is sufficient for the solo
+                local-first use case; npm publication is deferred until
+                external consumers or release-automation requirements justify
+                the added release surface."}
+    {:date "2026-06-09"
+     :decision "Spec source resolution is multi-source with deterministic
+                precedence: --spec-path CLI flag, then CONJURER_SPEC_PATH,
+                then workspace config, then upward directory search, then
+                repository-relative default. The resolved canonical path and
+                source are reported in diagnostics to keep configuration
+                behavior explicit and reproducible."}
+    {:date "2026-06-09"
+     :decision "Extension integration for v1 is direct shared-core
+                consumption for editor features; it does not require spawning
+                the MCP server as an internal transport layer. MCP subprocess
+                mode is deferred as an optional interoperability path after
+                server v1 stability is proven."}
+    {:date "2026-06-09"
+     :decision "Deferred validation depth is scheduled for v2 in this order:
+                validate_symbol_usage, then check_references, then
+                lint_conventions. v1 remains unchanged; v2 lint_conventions
+                starts as warning-only and is promoted only after acceptable
+                false-positive and utility signals."}
+    {:date "2026-06-09"
+     :decision "validate_symbol_usage implemented as Phase 1 of the v2 validation
+                depth sequence. collectSymbolRefs (EDN symbol traversal — head-
+                position symbols and namespaced symbols) moved from mcp-server/
+                retrieval.ts into shared-core/symbol-index.ts and exported from
+                @conjurer/core. checkSymbolUsage (symbolRefs × SymbolIndex →
+                Violation[]) added to validation.ts with severity :warning —
+                warning rather than error because false positives are expected
+                (form-type names may not be in the spec's symbol catalog). validateCnj
+                gains optional { index, symbolRefs } options; when both are provided
+                the symbol check runs; when either is absent it is skipped (backward
+                compatible). registerValidateTools accepts an optional ValidateContext
+                so server.ts can pass the already-built index. All 308 tests pass."}
+    {:date "2026-06-09"
+     :decision "check_references implemented as Phase 2 of the v2 validation depth
+                sequence. checkReferences (referencesStatus × → Violation[]) added
+                to validation.ts with severity :error — a broken reference is a hard
+                gap, not a style concern. handleValidate pre-computes referencesStatus
+                by resolving each :references entry against dirname(sourceFile) and
+                checking existsSync; result passed into validateCnj via the options
+                bag. ValidationOptions gains referencesStatus; the check runs whenever
+                it is provided (always from handleValidate, regardless of whether
+                an index is present). isDefined from @tsfpp/prelude used throughout
+                for guard conditions. Build clean; 328/328 tests pass."}
+    {:date "2026-06-09"
+     :decision "lint_conventions (Phase 3 of v2 validation depth) implemented.
+                lintConventions(doc) runs unconditionally in validateCnj — all
+                violations are :warning so existing valid/invalid semantics are
+                unaffected. Four convention rules: decisions-entry-shape (each
+                :decisions entry has non-empty :date and :decision),
+                decisions-date-format (:date matches YYYY-MM-DD),
+                decisions-chronological-order (non-decreasing dates across entries),
+                target-has-language (each target declares :language). Section-order
+                checking deferred — requires positional data not yet in CnjDocument.
+                False-positive posture: all warnings; promotion to :error deferred
+                until signal quality is confirmed. 358/358 tests pass, build clean.
+                v2 validation depth sequence now complete."}
+    {:date "2026-06-10"
+     :decision "list_candidates hoisted from the foresight backlog and implemented.
+                f/candidate forms are now first-class in the model: CnjCandidateForm
+                added to cnj-model.ts (id, label, cluster, status, scores as
+                ReadonlyMap<string,number>, rationale, conditions, added); toCnjModel
+                extracts them without polluting domainForms. The list_candidates MCP
+                tool (tools/foresight.ts) folds over all workspace files, groups by
+                :cluster, sorts within each cluster by descending total score, and
+                orders clusters by max total — making the backlog triageable in one
+                call. Foresight rationale document written to
+                design/conjurer-spec-foresight-rationale.md and the foresight.md
+                grimoire was accepted into the conjurer-spec. 386/386 tests pass."}]
+
+  :open []
+
+  :outputs {
+    :shared-core        (target :typescript :standard :tsf-plus-plus)
+    :mcp-server         (target :typescript :standard :tsf-plus-plus)
+    :vscode-extension   (target :typescript :standard :tsf-plus-plus)
+    :tool-contracts     :conjurer-only}   ;; the tool I/O specs stay as Conjurer spec
+
+  :references ["mcp-server.cnj" "vscode-extension.cnj"]
+  :tags       [:tooling :mcp :typescript :developer-experience])
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Section 2 — Assets (shared standards; referenced, not embedded)
+;;; ─────────────────────────────────────────────────────────────────
+
+(asset :tsf-plus-plus
+  :type        :code-standard
+  :description "TypeScript Style Foundation++ — the project's TypeScript coding
+                standard. It is not a local document but a published package
+                family: @tsfpp/standard (the normative spec and profiles),
+                @tsfpp/eslint-config (the enforced lint base), @tsfpp/tsconfig
+                (the compiler-policy bases), and @tsfpp/prelude (the Result/Option
+                runtime the standard's error-handling assumes). Its load-bearing
+                rule for this project: module size is capped at 400 lines, 800 with
+                an explicit, justified deviation. No god-files. One responsibility
+                per module."
+  :language    :typescript
+  :location    "@tsfpp/standard (npm) — normative source; profiles in
+                @tsfpp/eslint-config and @tsfpp/tsconfig"
+  :version     "@tsfpp/standard ^1.3.0"
+  :enforces    ["Max 400 lines per module; 800 only with a documented deviation"
+                "One clear responsibility per module; split when a second emerges"
+                "Explicit exported types at every package boundary"
+                "Pure functions where practical; isolate I/O at the edges"
+                "The standard is consumed from @tsfpp/* packages, not redefined locally"]
+  :prohibits   ["God-files (the prior 4000-line index.ts is the named anti-pattern)"
+                "Duplicating parser or type logic across packages"
+                "any types at package boundaries"
+                "Project-local redefinition of the coding standard outside @tsfpp/standard"]
+  :applies-to  [:shared-core :mcp-server :vscode-extension]
+  :active-in   :project)
+
+(asset :mcp-protocol
+  :type        :domain-vocabulary
+  :description "Model Context Protocol — the JSON-RPC-based contract between an
+                MCP client (the IDE agent) and server. Defines tools (callable
+                functions), resources (addressable read-only context), and the
+                stdio and HTTP transports. This project uses tools (and possibly
+                resources) over stdio."
+  :location    "https://modelcontextprotocol.io"
+  :version     "2025-06-18"   ;; protocol revision; confirm against SDK at build time
+  :enforces    ["Tools declare a name, description, and JSON-Schema input schema"
+                "Tool results are content blocks (text/structured), not raw values"
+                "stdio transport: server reads JSON-RPC on stdin, writes on stdout;
+                 all logging goes to stderr, never stdout"]
+  :prohibits   ["Writing diagnostic output to stdout on the stdio transport
+                 (it corrupts the JSON-RPC stream)"]
+  :applies-to  [:mcp-server]
+  :active-in   :project)
+
+(asset :conjurer-spec
+  :type        :domain-vocabulary
+  :description "The Conjurer specification itself — eleven grimoire markdown files
+                plus index.edn (machine-readable symbol catalog), quick-reference.md,
+                conjurer.md (philosophy), and template.md (.cnj structure). This is
+                the DATA the server serves. It is referenced by a local path or
+                symlink, never copied into the project. The exhume grimoire (x/) is
+                the one the server supports most actively in reverse workflows: an
+                agent recovering a .cnj from code retrieves exhume content forward
+                and has its recovered output validated."
+  :language    :en
+  :location    "../conjurer-spec"   ;; relative path or symlink; resolved at runtime
+  :version     "spec catalog 1.3.1"
+  :enforces    ["index.edn is the authoritative symbol catalog and routing layer
+                 (133 symbols across 11 grimoires)"
+                "Grimoire files live under grimoires/ (e.g. grimoires/web.md,
+                 grimoires/exhume.md)"
+                "The server treats the spec as read-only; it never mutates it"]
+  :prohibits   ["Embedding spec content in the server build (it must read the
+                 live spec so updates require no rebuild)"]
+  :applies-to  [:shared-core :mcp-server]
+  :active-in   :project)
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Section 3 — Assume (operative constraints for the whole toolchain)
+;;; ─────────────────────────────────────────────────────────────────
+
+(assume conjurer-mcp-constraints
+  :environment  :local-developer-workstation
+  :scale        {:users :solo
+                 :spec-size "~11 grimoires, 133 symbols, low-thousands of lines total"
+                 :call-volume :interactive}   ;; one agent, human-paced; not a service
+  :team         {:size 1 :role :solo-maintainer}
+  :infrastructure {:runtime :node
+                   :language :typescript
+                   :transport :stdio              ;; HTTP/hosting explicitly out of scope for v1
+                   :bundler :esbuild
+                   :test :node-test-runner-or-vitest
+                   :repo :monorepo}
+  :constraints [
+    "No LLM, no network calls, no API keys inside the server — fully deterministic"
+    "stdio transport must work; remote/HTTP hosting is not required for v1"
+    "Every source module obeys the TSF++ size limit (400/800)"
+    "The server reads the live spec by path/symlink; spec updates need no rebuild"
+    "Server and extension share one core package; no logic duplication"]
+  :non-negotiable [
+    "Deterministic behaviour — identical inputs yield identical outputs"
+    "No god-files — the prior single-file failure must not recur"
+    "stdout on the stdio transport carries only JSON-RPC; logs go to stderr"]
+  :negotiable [
+    "Test framework choice (node:test vs vitest)"
+    "Whether resources are exposed in addition to tools"
+    "npm publication vs local-only install for v1"])
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Section 6 — Targets (deliverable declarations; detail in referenced files)
+;;; ─────────────────────────────────────────────────────────────────
+
+;;; The shared core is the foundation both other deliverables build on.
+;;; Its module decomposition is specified in mcp-server.cnj Section VI,
+;;; co-located with the server that is its primary consumer.
+
+(target :shared-core
+  :language  :typescript
+  :standard  :tsf-plus-plus
+  :produces  [:library :type-definitions]
+  :scope     [:edn-parser :spec-reader :symbol-index :cnj-model
+              :validation-rules :preflight-resolver]
+  :via       :direct)
+
+(target :mcp-server
+  :language  :typescript
+  :framework :mcp-sdk
+  :standard  :tsf-plus-plus
+  :produces  [:stdio-mcp-server :test-suite]
+  :scope     [:retrieval-tools :parse-tools :validation-tools]
+  :from      :shared-core
+  :via       :direct)
+
+(target :vscode-extension
+  :language  :typescript
+  :framework :vscode-extension-api
+  :standard  :tsf-plus-plus
+  :produces  [:vsix :bundled-extension]
+  :scope     [:codelens :hover :commands]
+  :from      :shared-core
+  :via       :direct)
+
+;;; ─────────────────────────────────────────────────────────────────
+;;; Section 7 — Foresight (deferred ideas, per foresight.md)
+;;; ─────────────────────────────────────────────────────────────────
+;;; Items here are graded f/candidates — neither decided nor abandoned.
+;;; Lifecycle: :proposed → :planned → :hoisted (via f/hoist) | :abandoned.
+;;;
+;;; Score axes (1–10). Higher is always more attractive (normalised polarity):
+;;;   :feasibility — how achievable        (1 = very hard,  10 = trivial)
+;;;   :elegance    — fit with the design   (1 = hacky,      10 = native/pure)
+;;;   :containment — blast radius          (1 = large,      10 = tiny)
+;;;   :value       — usefulness in practice (1 = marginal,  10 = essential)
+;;;
+;;; Scores assessed at :added date. Add f/reassess before hoisting if
+;;; project scope has shifted since the original assessment.
+
+;; ── Already hoisted (v2 Phase 1–3, 2026-06-09) ───────────────────
+;; validate_symbol_usage, check_references, lint_conventions:
+;; hoisted 2026-06-09 — see charter :decisions (v2 validation depth).
+
+(f/candidate :search_decisions
+  :label   "search_decisions"
+  :cluster :cluster-d
+  :added   "2026-06-09"
+  :status  :proposed
+  :scores  {:feasibility 9 :elegance 9 :containment 9 :value 9}
+  :history [(f/reassess :of :search_decisions
+               :date   "2026-06-10"
+               :scores {:feasibility 5 :elegance 9 :containment 9 :value 9}
+               :rationale "Workspace-snapshot layer is now stable — the original deferral
+                           reason is resolved. However the feasibility score of 9 was set
+                           when 'reusing existing search infrastructure' seemed direct.
+                           Decisions are multi-line prose in nested EDN maps; extracting
+                           searchable text requires a dedicated walker pass distinct from
+                           the symbol-extraction visitNode pattern. Token/substring matching
+                           over long decision prose carries real false-positive risk and
+                           uncertain recall — not a clean analogue of symbol lookup.
+                           Feasibility reassessed 9 → 5; total 36 → 32.")]
+  :conditions ["decision-text extraction from nested EDN validated against real
+                queries on this workspace before commit to the implementation shape"]
+  :rationale "Free-text search over all :decisions and :open entries across
+              workspace .cnj files — answers 'when did we decide X?' instantly.
+              Reuses existing search infrastructure applied to the decision layer
+              rather than the symbol layer. Deferred: cross-file search depends
+              on a stable workspace-snapshot layer not yet formalised.")
+
+(f/candidate :lint_disk_consistency
+  :label   "lint_disk_consistency"
+  :cluster :cluster-c
+  :added   "2026-06-09"
+  :status  :hoisted
+  :scores  {:feasibility 7 :elegance 9 :containment 8 :value 9}
+  :rationale "Compare declared :modules, :references, and :outputs in a .cnj
+              against the actual filesystem state — catches the .cnj lying about
+              what exists. Pure I/O check, no spec lookup, composes cleanly with
+              existing validation. Deferral resolved: workspace-state.ts is in
+              production and stable; the I/O walk pattern is established.")
+
+(f/candidate :lens_stale_decisions
+  :label   "lens_stale_decisions"
+  :cluster :cluster-d
+  :added   "2026-06-09"
+  :status  :proposed
+  :scores  {:feasibility 6 :elegance 9 :containment 8 :value 9}
+  :conditions ["Define which entity types constitute decision references and how they appear
+                (structured :refs field in r/decide vs. a text pattern convention) —
+                extraction is only meaningful once the reference representation is agreed."
+               "Verify at least one real decision in the workspace uses the agreed reference
+                format so the extraction logic can be validated against a known case before
+                the tool is built."]
+  :rationale "Detect decisions that reference entities which no longer exist:
+              removed modules, resolved deferred items, renamed targets — a
+              living-document health check that directly expresses the project's
+              honesty philosophy. Deferred: needs the decision-graph model to be
+              in place before reference resolution is meaningful.")
+
+(f/candidate :materialise_plan
+  :label   "materialise_plan"
+  :cluster :cluster-d
+  :added   "2026-06-09"
+  :status  :planned
+  :scores  {:feasibility 8 :elegance 9 :containment 8 :value 9}
+  :conditions ["define the task-list output shape (step inputs, outputs, Conjurer form
+                refs) against a real preflight report before committing to the schema"]
+  :rationale "Given a resolved preflight report, emit a fully sequenced,
+              dependency-ordered task list: each step's inputs, outputs, and
+              the Conjurer forms they correspond to. Bridges preflight (what
+              needs doing) to execution (in what order). Fully deterministic.
+              Deferred: the preflight resolver must prove stable on real projects
+              before layering a plan emitter on top of it."
+  :history [
+    (f/reassess :of :materialise_plan
+      :date "2026-06-10"
+      :scores {:feasibility 8 :containment 8}
+      :rationale "preflight resolver is battle-tested on this project: materialise_preflight,
+                  resolve, evaluate, and workspace_summary all run against the five design
+                  .cnj files. The plan emitter is a pure formatter over existing data structures
+                  (WorkspaceSnapshot + MaterialisePreflightReport) — no new core module needed.
+                  Original feasibility of 5 was set before resolver stability was confirmed;
+                  original containment of 6 reflected the same uncertainty. Both now resolved.
+                  Reassessment condition in :conditions fulfilled and replaced with the remaining
+                  implementation gate: agreeing on the output shape before coding the formatter."
+      :status :planned)])
+
+(f/candidate :lint_target_health
+  :label   "lint_target_health"
+  :cluster :cluster-d
+  :added   "2026-06-09"
+  :status  :proposed
+  :scores  {:feasibility 6 :elegance 8 :containment 7 :value 8}
+  :rationale "Per-target health check: actual line counts vs. TSF++ ceilings,
+              declared vs. present modules on disk, export consistency against
+              tool registrations. The CLAUDE.md hard rules as a queryable
+              deterministic tool. Deferred: lint_disk_consistency covers the
+              simpler case first; this extends it with TSF++ ceiling awareness.")
+
+(f/candidate :cnj_resources
+  :label   ".cnj MCP resources"
+  :cluster :cluster-resources
+  :added   "2026-06-09"
+  :status  :proposed
+  :scores  {:feasibility 7 :elegance 8 :containment 9 :value 7}
+  :conditions ["Name one concrete IDE workflow (hover, reference navigation, diff view)
+                that demonstrably benefits from subscribing to .cnj resources rather than
+                calling parse_cnj on demand — weak use cases don't justify a new public
+                URI surface."
+               "Decide the URI key before writing any code: basename
+                (conjurer://cnj/mcp-server) vs. workspace-relative path
+                (conjurer://cnj/design/mcp-server) — the URI is public protocol API
+                and cannot be changed without breaking callers."]
+  :rationale "Expose workspace .cnj files as conjurer://cnj/<name> MCP resources
+              alongside the existing grimoire resources — enables the IDE to
+              subscribe and browse the design layer without a dedicated tool call.
+              Small surface; grimoires already show the pattern works. Deferred:
+              not blocking any current IDE workflow; cosmetic until we add
+              change-notification support.")
+
+(f/candidate :snapshot_workspace
+  :label   "snapshot_workspace"
+  :cluster :cluster-d
+  :added   "2026-06-09"
+  :status  :proposed
+  :scores  {:feasibility 8 :elegance 7 :containment 8 :value 7}
+  :conditions ["Draft the output schema (even informally) and mark which fields are
+                guaranteed stable — this is the stated missing piece; implement only
+                after the stability contract is written down."
+               "Identify the primary consumer before coding: which external tool, agent
+                pattern, or workflow drives the schema requirements? Vague consumers
+                ('external tooling', 'new agents') produce schemas that satisfy no one."]
+  :rationale "Serialise the full parsed workspace (all .cnj files and their
+              relationships) to a single structured JSON in one call. Useful for
+              diffing state over time, external tooling, and bootstrapping new
+              agents. Deferred: the workspace-state module works but the snapshot
+              format is not yet stable enough to commit to as a public shape.")
+
+(f/candidate :trace_decision_chain
+  :label   "trace_decision_chain"
+  :cluster :cluster-d
+  :added   "2026-06-09"
+  :status  :proposed
+  :scores  {:feasibility 4 :elegance 9 :containment 6 :value 7}
+  :rationale "Navigate the decision graph: given a decision, trace backward to
+              the open questions and assets that motivated it, and forward to
+              decisions and modules it influenced. The .cnj history as a
+              traversable DAG — the most Conjurer-native idea here, since the
+              spec is already a decision graph. Deferred: requires building the
+              DAG model over the charter; non-trivial but the payoff is high.")
+
+(f/candidate :watch_workspace
+  :label   "watch_workspace"
+  :cluster :cluster-resources
+  :added   "2026-06-09"
+  :status  :proposed
+  :scores  {:feasibility 5 :elegance 7 :containment 7 :value 7}
+  :rationale "Push MCP change notifications when .cnj files change on disk —
+              reactive sync without polling; the IDE stays current without a
+              dedicated refresh call. Deferred: requires careful navigation of
+              MCP's notification constraints and adds a persistent file-watcher,
+              which changes the server's process model.")
+
+;; list_candidates: hoisted 2026-06-10 — see charter decision and mcp-server.cnj spell.
+
+(f/hoist :of :list_candidates
+  :date     "2026-06-10"
+  :into     :charter-decision/list-candidates-2026-06-10
+  :outcomes [:cnj-model-gains-candidates :new-foresight-module :tool-registered]
+  :note     "Both gating conditions met: CnjCandidateForm added to cnj-model.ts;
+             nine f/candidates exist in conjurer-mcp.cnj. Implemented same session.")
+
+;; ── lens-hoist-readiness: hoisted 2026-06-10 — see mcp-server.cnj spell.
+;; ── diff-candidates: hoisted 2026-06-10 — see mcp-server.cnj spell.
+
+(f/hoist :of :lens-hoist-readiness
+  :date     "2026-06-10"
+  :into     :charter-decision/lens-hoist-readiness-2026-06-10
+  :outcomes [:new-foresight-handler :lens-hoist-readiness-registered]
+  :note     "Backlog exceeded threshold (14 candidates); CnjCandidateForm.history landed
+             as a shared model extension in the same session. Implemented same day.")
+
+(f/hoist :of :diff-candidates
+  :date     "2026-06-10"
+  :into     :charter-decision/diff-candidates-2026-06-10
+  :outcomes [:diff-candidates-handler :diff-candidates-registered]
+  :note     "CnjHoist type landed as shared model extension in the same session,
+             enabling graduation detection. Implemented same day.")
+
+;; ── lint_disk_consistency: hoisted 2026-06-10 — see mcp-server.cnj spell.
+
+(f/hoist :of :lint_disk_consistency
+  :date     "2026-06-10"
+  :into     :charter-decision/lint-disk-consistency-2026-06-10
+  :outcomes [:cluster-c-extended :lint-disk-consistency-registered :suffix-match-module-discovery]
+  :note     "Both deferral conditions resolved in the same session: workspace-state.ts
+             was confirmed stable, and the I/O walk pattern was established by the
+             existing validate_cnj tooling. Implemented with readdirSync recursive walk
+             and suffix-based module matching (catches tools/retrieval.ts-style paths).")
+
+;; ── Foresight-layer tool candidates (added 2026-06-10) ───────────────
+
+(f/candidate :list_candidates
+  :label   "list_candidates — expose f/candidate backlog as a queryable tool"
+  :cluster :cluster-foresight
+  :added   "2026-06-10"
+  :status  :hoisted
+  :scores  {:feasibility 9 :elegance 8 :containment 9 :value 8}
+  :conditions ["CnjCandidateForm added to cnj-model.ts"
+               "at least nine f/candidates exist in conjurer-mcp.cnj so the tool
+                has a real backlog to operate on"]
+  :rationale "f/candidate forms are first-class design artefacts but the prior server
+              had no way to query them — retrieving the backlog required reading the raw
+              .cnj file manually. A dedicated tool surfaces the candidates grouped by
+              :cluster and ranked by score, making the foresight layer queryable in the
+              same session that surfaces retrieval, validation, and planning results.
+              Deferred until CnjCandidateForm landed in the shared model and the backlog
+              was large enough that a grouped view added value over reading the file.")
+
+(f/candidate :f-trajectory
+  :label   "f/trajectory — scored trajectory analytics for a candidate"
+  :cluster :cluster-foresight
+  :added   "2026-06-10"
+  :status  :proposed
+  :scores  {:feasibility 7 :elegance 9 :containment 8 :value 7}
+  :rationale "f/reassess is the grimoire's core contribution — the scored trajectory
+              preserving how judgment moved, not just where it landed. But CnjCandidateForm
+              does not yet extract :history; list_candidates returns only original scores
+              and the trajectory is invisible to every tool. The tool would compute
+              per-dimension delta and velocity (score-change / elapsed-days) and surface
+              days_since_last_assessment for stale-judgment detection — all pure arithmetic
+              over the model. Deferred because no workspace yet has f/reassess entries to
+              run against; adding it now would add dead infrastructure with no data to
+              validate the output shape."
+  :conditions ["at least one f/candidate in the workspace carries a non-empty :history"
+               "CnjReassessment type and CnjCandidateForm.history field added to cnj-model.ts"])
+
+(f/candidate :lens-hoist-readiness
+  :label   "lens_hoist_readiness — pre-decision triage briefing"
+  :cluster :cluster-foresight
+  :added   "2026-06-10"
+  :status  :hoisted
+  :scores  {:feasibility 8 :elegance 9 :containment 9 :value 8}
+  :rationale "The grimoire states the foresight→r/decide handoff explicitly: a set of
+              mature candidates becomes the alternative set a decision evaluates.
+              Today that handoff is manual — the agent calls list_candidates, inspects
+              scores and status, reads conditions, and reasons about readiness, all of
+              which is mechanical threshold work the server should absorb. The tool
+              applies deterministic structural criteria (score ≥ min_score, status active,
+              conditions returned verbatim) and returns a structured pre-decision briefing
+              without claiming to know whether conditions are actually met — that judgment
+              stays with the practitioner. Deferred only until the backlog grows large
+              enough that multi-candidate triage becomes a real cost; with nine candidates
+              today the benefit is marginal."
+  :conditions ["backlog contains five or more :proposed or :planned candidates"
+               "at least one candidate has been reassessed (f/reassess present) so the
+                has_reassessment signal in the briefing is non-trivially true"])
+
+(f/candidate :trace-hoist-chain
+  :label   "trace_hoist_chain — forward traceability from candidate to decision"
+  :cluster :cluster-foresight
+  :added   "2026-06-10"
+  :status  :proposed
+  :scores  {:feasibility 6 :elegance 9 :containment 7 :value 6}
+  :rationale "f/hoist records a :into binding — the candidate references the decision
+              it became — but the server neither models f/hoist forms nor can verify
+              that the :into reference resolves to a real charter decision. A dangling
+              hoist (candidate promoted, no receiving decision recorded) is the foresight
+              equivalent of a broken :references link; surfacing it enforces the
+              opening/closing symmetry the grimoire names as central. The tool also
+              enables project archaeology: an agent re-entering a project can call
+              trace_hoist_chain to reconstruct the idea→decision arc for the full
+              workspace history. Feasibility is 6 because :into carries a symbolic
+              keyword reference (e.g. :charter-decision/list-candidates-2026-06-10)
+              whose resolution against charter.decisions entries requires convention-aware
+              matching, not a literal key lookup — and that convention is not yet
+              formalised. Deferred until the :into reference format is stable across
+              at least two hoists."
+  :conditions ["CnjHoist type and CnjDocument.hoists field added to cnj-model.ts"
+               "at least two f/hoist forms exist in the workspace so dangling-hoist
+                detection can be validated against a real case"
+               ":into reference format convention formalised (keyword vs string, path convention)"])
+
+(f/candidate :diff-candidates
+  :label   "diff_candidates — semantic backlog diff between two .cnj snapshots"
+  :cluster :cluster-b
+  :added   "2026-06-10"
+  :status  :hoisted
+  :scores  {:feasibility 9 :elegance 8 :containment 9 :value 7}
+  :rationale "diff_cnj computes semantic diffs over charter, targets, and assets but
+              is silent on the candidates layer, even though f/candidate forms are as
+              structurally significant as any other model element and their lifecycle
+              changes (status promotions, score shifts, hoists) are exactly the
+              what-changed-in-the-design question diff_cnj was built for. Candidates
+              carry a stable :id by grimoire specification, making the diff unambiguous —
+              unlike decisions (keyed by date+text fingerprint), candidates have a
+              genuine stable key. The diff covers: candidates added, candidates removed,
+              status changes, score deltas on shared candidates, and graduations
+              (candidate in A, corresponding f/hoist in B). High feasibility because
+              diff_cnj already exists as the structural pattern and the :id key makes
+              the comparison trivial. Deferred because diff_cnj is most useful against
+              two independently evolved snapshots — git history is the natural source —
+              and the workflow for loading two-snapshot diffs is not yet formalised."
+  :conditions ["diff_cnj stable with no active rework planned for tools/diff.ts"
+               "CnjHoist type added to the model (needed for graduation detection —
+                shared condition with trace-hoist-chain)"])
+
+(f/candidate :lens-foresight-health
+  :label   "lens_foresight_health — backlog maintenance diagnostics"
+  :cluster :cluster-foresight
+  :added   "2026-06-10"
+  :status  :planned
+  :scores  {:feasibility 7 :elegance 9 :containment 9 :value 8}
+  :rationale "The grimoire's best-practices section names its own failure modes by name:
+              the rotting backlog, rationale-free deferral, orphaned hoists. These are
+              structurally checkable without any LLM and without spec lookups — pure
+              arithmetic and string operations over the model. The checks: (1) stale
+              candidates (no f/reassess, days_since_added > threshold); (2) rationale-thin
+              candidates (:rationale absent or below minimum length); (3) orphaned hoists
+              (f/hoist whose :of has no matching f/candidate :id); (4) lifecycle
+              distribution (counts by :status across the workspace — a project where
+              nothing leaves :proposed is using the backlog as a graveyard);
+              (5) high-score / no-conditions gap (total ≥ 30 with empty :conditions,
+              turning a vague 'later' into an accountable gap). This is lint_conventions
+              for the foresight layer: the grimoire's own stated discipline made
+              queryable as structured violations. Feasibility is 7 because it is gated
+              on both the f/reassess and f/hoist model work; once those land, the
+              checks themselves are trivial. Deferred in that order."
+  :conditions ["CnjReassessment type and CnjCandidateForm.history added (shared with f-trajectory)"
+               "CnjHoist type and CnjDocument.hoists added (shared with trace-hoist-chain)"
+               "backlog is large enough (eight or more candidates) that health metrics
+                are non-trivially meaningful"])
