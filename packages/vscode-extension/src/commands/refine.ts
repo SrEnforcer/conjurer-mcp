@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { parse, toCnjModel } from '@conjurer/core';
+import { parse, toCnjModel, effectiveScores } from '@conjurer/core';
+import type { CnjCandidateForm } from '@conjurer/core';
 import { isErr } from '@tsfpp/prelude';
 
 // ── Pure helpers (no VS Code dependency) ──────────────────────────────────
@@ -12,12 +13,10 @@ const TOP_LEVEL_FORM = /^\([a-zA-Z]/;
  */
 export const extractFormContent = (lines: ReadonlyArray<string>, startLine: number): string => {
   const MAX = 80;
-  const out: string[] = [];
-  for (let i = startLine; i < lines.length && i < startLine + MAX; i++) {
-    if (i !== startLine && TOP_LEVEL_FORM.test(lines[i] ?? '')) break;
-    out.push(lines[i] ?? '');
-  }
-  return out.join('\n');
+  const window = lines.slice(startLine, startLine + MAX);
+  const nextTopLevel = window.slice(1).findIndex((line) => TOP_LEVEL_FORM.test(line));
+  const formWindow = nextTopLevel === -1 ? window : window.slice(0, nextTopLevel + 1);
+  return formWindow.join('\n');
 };
 
 const FORM_GUIDANCE: Readonly<Record<string, string>> = {
@@ -75,12 +74,17 @@ const defaultGuidance = (type: string): string =>
  * Build a Conjurer `refine`-framed prompt for a named form.
  * Pure — no side effects, fully testable.
  */
-export const buildRefinePrompt = (
-  formType: string,
-  formName: string,
-  formContent: string,
-  filePath: string,
-): string => {
+export const buildRefinePrompt = ({
+  filePath,
+  formContent,
+  formName,
+  formType,
+}: {
+  readonly filePath: string;
+  readonly formContent: string;
+  readonly formName: string;
+  readonly formType: string;
+}): string => {
   const guidance = FORM_GUIDANCE[formType] ?? defaultGuidance(formType);
   return [
     `Using Conjurer's \`refine\` construct — iterative enhancement of an existing form without starting over.`,
@@ -206,6 +210,73 @@ export const buildArguePrompt = (
     `Also output a \`(f/reassess :of :${candidateId}\` block capturing the argument as a history node.`,
   ].join('\n');
 
+/**
+ * Build a prompt asking the IDE LLM to refresh :goals based on current
+ * project knowledge (settled decisions) and stated future intent (candidates).
+ * Pure — no side effects, fully testable.
+ */
+const effectiveTotal = (candidate: CnjCandidateForm): number =>
+  Array.from(effectiveScores(candidate).values()).reduce((left, right) => left + right, 0);
+
+const isActiveCandidate = (candidate: CnjCandidateForm): boolean =>
+  candidate.status === 'proposed' || candidate.status === 'planned';
+
+const summarizeCandidate = (candidate: CnjCandidateForm): string =>
+  `  [${candidate.cluster}] ${candidate.id} (score ${effectiveTotal(candidate)}, ${candidate.status}) — ${candidate.rationale.slice(0, 120).replace(/\s+/g, ' ')}`;
+
+const candidateSummaryLines = (candidates: ReadonlyArray<CnjCandidateForm>): string => {
+  const activeCandidates = [...candidates]
+    .filter(isActiveCandidate)
+    .sort((left, right) => effectiveTotal(right) - effectiveTotal(left));
+  return activeCandidates.length === 0 ? '  (none)' : activeCandidates.map(summarizeCandidate).join('\n');
+};
+
+const REFRESH_GOALS_GUIDANCE: ReadonlyArray<string> = [
+  `Refresh guidance:`,
+  `- Goals must reflect where the project is ACTUALLY going, not where it started.`,
+  `- Each goal should be specific enough to be falsifiable: "provide X to Y" not "support Z".`,
+  `- Candidate clusters reveal coherent future intent — if the backlog consistently targets a domain, that intent belongs in :goals.`,
+  `- Settled decisions constrain goals: goals that contradict closed decisions should be removed or rewritten.`,
+  `- Aim for 4–6 goals. Prune stale aspirations rather than accumulating new ones.`,
+  ``,
+  `Provide:`,
+  `a) **Proposed :goals list** — EDN-ready strings, one per line, ready to paste`,
+  `b) **Changes explained** — what was added, removed, or reworded and why`,
+  `c) **Stale goals removed** — any current goal the evidence does not support (and why it was cut)`,
+];
+
+export const buildRefreshGoalsPrompt = ({
+  goals,
+  candidates,
+  charterContent,
+  filePath,
+}: {
+  readonly candidates: ReadonlyArray<CnjCandidateForm>;
+  readonly charterContent: string;
+  readonly filePath: string;
+  readonly goals: ReadonlyArray<string>;
+}): string => {
+  const activeCandidates = candidates.filter(isActiveCandidate);
+  return [
+    `Using Conjurer's \`refine\` construct — refreshing :goals to reflect current project knowledge and future intent.`,
+    ``,
+    `File: ${filePath}`,
+    ``,
+    `Current :goals (${goals.length}):`,
+    ...goals.map((g, i) => `${i + 1}. ${g}`),
+    ``,
+    `Charter context (decisions and open questions for consistency checking):`,
+    `\`\`\``,
+    charterContent.trim().slice(0, 3000),
+    `\`\`\``,
+    ``,
+    `Active candidates — stated future intent (${activeCandidates.length}):`,
+    candidateSummaryLines(candidates),
+    ``,
+    ...REFRESH_GOALS_GUIDANCE,
+  ].join('\n');
+};
+
 // ── VS Code adapter ───────────────────────────────────────────────────────
 
 const openInChat = async (prompt: string): Promise<void> => {
@@ -227,7 +298,12 @@ const doRefineForm = async (formType: string, formName: string, startLine: numbe
   if (editor === undefined) return;
   const lines = getLines(editor.document);
   const content = extractFormContent(lines, startLine);
-  const prompt = buildRefinePrompt(formType, formName, content, editor.document.fileName);
+  const prompt = buildRefinePrompt({
+    filePath: editor.document.fileName,
+    formContent: content,
+    formName,
+    formType,
+  });
   await openInChat(prompt);
 };
 
@@ -277,6 +353,36 @@ const doArgueCandidate = async (candidateId: string, startLine: number): Promise
   await openInChat(prompt);
 };
 
+const doRefreshGoals = async (): Promise<void> => {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined || !editor.document.fileName.endsWith('.cnj')) {
+    void vscode.window.showInformationMessage('Open a .cnj document to refresh goals.');
+    return;
+  }
+  const src = editor.document.getText();
+  const parsed = parse(src);
+  if (isErr(parsed)) {
+    void vscode.window.showErrorMessage(`Parse error: ${parsed.error.message}`);
+    return;
+  }
+  const doc = toCnjModel(parsed.value, editor.document.fileName);
+  if (isErr(doc)) {
+    void vscode.window.showErrorMessage(`Model error: ${doc.error}`);
+    return;
+  }
+  const { goals } = doc.value.charter;
+  const lines = getLines(editor.document);
+  const charterLine = lines.findIndex((l) => /^\s*\(charter\s/.test(l));
+  const charterContent = charterLine >= 0 ? extractFormContent(lines, charterLine) : src.slice(0, 3000);
+  const prompt = buildRefreshGoalsPrompt({
+    candidates: doc.value.candidates,
+    charterContent,
+    filePath: editor.document.fileName,
+    goals,
+  });
+  await openInChat(prompt);
+};
+
 export const registerRefineCommands = (ctx: vscode.ExtensionContext): void => {
   // DEVIATION(1.9): ctx.subscriptions is a mutable VS Code adapter array.
   // eslint-disable-next-line functional/immutable-data
@@ -298,5 +404,6 @@ export const registerRefineCommands = (ctx: vscode.ExtensionContext): void => {
       'conjurer.argueCandidate',
       (candidateId: string, startLine: number) => void doArgueCandidate(candidateId, startLine),
     ),
+    vscode.commands.registerCommand('conjurer.refreshGoals', () => void doRefreshGoals()),
   );
 };

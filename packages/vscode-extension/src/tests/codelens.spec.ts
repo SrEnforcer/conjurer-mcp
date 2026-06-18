@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { intoMap } from '@tsfpp/prelude';
 import type { SymbolIndex } from '@conjurer/core';
-import { findCharterLine, findSymbolOccurrences, findFormOccurrences, findCandidateOccurrences } from '../providers/codelens.js';
+import { findCharterLine, findSymbolOccurrences, findFormOccurrences, findCandidateOccurrences, findGoalsLine } from '../providers/codelens.js';
 
 const emptyIdx: SymbolIndex = { symbols: intoMap([]), grimoires: intoMap([]) };
 
@@ -97,7 +97,9 @@ describe('findFormOccurrences', () => {
     expect(forms[0]?.type).toBe('spell');
     expect(forms[0]?.name).toBe('my-spell');
   });
+});
 
+describe('findFormOccurrences line handling', () => {
   it('finds multiple forms at correct line numbers', () => {
     const lines = [
       '(charter "Proj" :version "1.0.0")',
@@ -128,7 +130,9 @@ describe('findFormOccurrences', () => {
     const forms = findFormOccurrences(lines);
     expect(forms).toHaveLength(0);
   });
+});
 
+describe('findFormOccurrences asset coverage', () => {
   it('finds asset forms', () => {
     const lines = ['(asset "My Asset" :enforced-by "CI")'];
     const forms = findFormOccurrences(lines);
@@ -159,7 +163,9 @@ describe('findCandidateOccurrences', () => {
     const lines = ['(f/candidate :codelens-candidate-score'];
     expect(findCandidateOccurrences(lines)[0]?.id).toBe('codelens-candidate-score');
   });
+});
 
+describe('findCandidateOccurrences line handling', () => {
   it('detects multiple candidates at the correct line numbers', () => {
     const lines = [
       '(charter "P" :version "1.0.0")',
@@ -187,5 +193,38 @@ describe('findCandidateOccurrences', () => {
   it('does not match indented continuation lines', () => {
     const lines = ['  (f/candidate :indented', '  :status :proposed)'];
     expect(findCandidateOccurrences(lines)).toHaveLength(0);
+  });
+});
+
+describe('findGoalsLine', () => {
+  const CHARTER_LINES = [
+    '(charter "My Project"',
+    '  :version "1.0.0"',
+    '  :goals ["ship the MCP server"]',
+    '  :open ["what about HTTP?"])',
+    '(target "app")',
+  ];
+
+  it('returns undefined for empty lines', () => {
+    expect(findGoalsLine([], 0)).toBeUndefined();
+  });
+
+  it('finds :goals line within the charter body', () => {
+    expect(findGoalsLine(CHARTER_LINES, 0)).toBe(2);
+  });
+
+  it('returns undefined when no :goals in the charter body', () => {
+    const lines = ['(charter "X" :version "1")', '  :open ["q"])', '(target "app")'];
+    expect(findGoalsLine(lines, 0)).toBeUndefined();
+  });
+
+  it('stops at the next top-level form and returns undefined', () => {
+    const lines = ['(charter "X")', '(target "app")', '  :goals ["too late"]'];
+    expect(findGoalsLine(lines, 0)).toBeUndefined();
+  });
+
+  it('handles :goals on a deeply indented line', () => {
+    const lines = ['(charter "X"', '    :version "1"', '    :goals ["deep"]', ')'];
+    expect(findGoalsLine(lines, 0)).toBe(2);
   });
 });

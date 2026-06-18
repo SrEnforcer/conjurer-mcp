@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeHoistFoldRanges } from '../providers/folding.js';
+import { computeHoistFoldRanges, computeDecisionFoldRanges } from '../providers/folding.js';
 
 const MULTI_HOIST = [
   '(f/candidate :foo',        // 0
@@ -36,7 +36,9 @@ describe('computeHoistFoldRanges', () => {
     expect(ranges).toHaveLength(1);
     expect(ranges[0]).toEqual({ start: 0, end: 1 });
   });
+});
 
+describe('computeHoistFoldRanges with multiple forms', () => {
   it('stops a hoist range when the next top-level form begins', () => {
     const ranges = computeHoistFoldRanges(MULTI_HOIST);
     expect(ranges[0]).toEqual({ start: 2, end: 5 });
@@ -63,7 +65,9 @@ describe('computeHoistFoldRanges', () => {
     expect(ranges).toHaveLength(1);
     expect(ranges[0]).toEqual({ start: 0, end: 0 });
   });
+});
 
+describe('computeHoistFoldRanges candidate status handling', () => {
   it('folds f/candidate with :status :hoisted', () => {
     const lines = [
       '(f/candidate :foo',
@@ -93,5 +97,69 @@ describe('computeHoistFoldRanges', () => {
   it('does not fold f/candidate with :status :abandoned', () => {
     const lines = ['(f/candidate :old', '  :status :abandoned)'];
     expect(computeHoistFoldRanges(lines)).toHaveLength(0);
+  });
+});
+
+describe('computeDecisionFoldRanges', () => {
+  it('returns empty for a file with no :decisions block', () => {
+    expect(computeDecisionFoldRanges(['(charter "Proj")', '  :status :active)'])).toHaveLength(0);
+  });
+
+  it('handles an empty file', () => {
+    expect(computeDecisionFoldRanges([])).toHaveLength(0);
+  });
+});
+
+describe('computeDecisionFoldRanges block shapes', () => {
+  it('detects a simple multi-line :decisions block', () => {
+    const lines = [
+      '(charter "Proj"',              // 0
+      '  :decisions [',               // 1 — start
+      '    {:date "2026-01-01"',      // 2
+      '     :decision "Use EDN"}',    // 3
+      '  ]',                          // 4 — end
+      '  :status :active)',           // 5
+    ];
+    const ranges = computeDecisionFoldRanges(lines);
+    expect(ranges).toHaveLength(1);
+    expect(ranges[0]).toEqual({ start: 1, end: 4 });
+  });
+
+  it('handles nested vectors inside decision maps', () => {
+    const lines = [
+      '  :decisions [',               // 0
+      '    {:tags [:a :b]',           // 1 — nested vector
+      '     :decision "X"}',          // 2
+      '  ]',                          // 3
+    ];
+    const ranges = computeDecisionFoldRanges(lines);
+    expect(ranges).toHaveLength(1);
+    expect(ranges[0]).toEqual({ start: 0, end: 3 });
+  });
+
+  it('handles a single-line :decisions block', () => {
+    const lines = ['  :decisions [{:decision "tiny"}]'];
+    const ranges = computeDecisionFoldRanges(lines);
+    expect(ranges).toHaveLength(1);
+    expect(ranges[0]).toEqual({ start: 0, end: 0 });
+  });
+});
+
+describe('computeDecisionFoldRanges multi-form handling', () => {
+  it('detects :decisions blocks in multiple forms', () => {
+    const lines = [
+      '(charter "A"',       // 0
+      '  :decisions [',     // 1
+      '    {:decision "x"}',// 2
+      '  ])',               // 3
+      '(charter "B"',       // 4
+      '  :decisions [',     // 5
+      '    {:decision "y"}',// 6
+      '  ])',               // 7
+    ];
+    const ranges = computeDecisionFoldRanges(lines);
+    expect(ranges).toHaveLength(2);
+    expect(ranges[0]).toEqual({ start: 1, end: 3 });
+    expect(ranges[1]).toEqual({ start: 5, end: 7 });
   });
 });

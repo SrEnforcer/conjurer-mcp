@@ -8,7 +8,7 @@
 (charter "conjurer-mcp (recovered baseline)"
   :version "0.0.0-recovered"
   :created "2026-06-06"
-  :updated "2026-06-06"
+  :updated "2026-06-12"
   :domain "A TypeScript Model Context Protocol server for Conjurer that provides symbol routing, grimoire retrieval, workspace .cnj context services, dependency-aware resolve/evaluate flows, and stdio plus Streamable HTTP transports."
   :language :en
 
@@ -67,16 +67,60 @@
         {:date "2026-06-06"
       :decision "Architecture direction for next materialization: keep server-centric design manifests in src/ and place VSIX extension implementation under packages/."
       :recovered :attested
-        :evidence ["Practitioner direction on 2026-06-06 for this recovery"]}]
+        :evidence ["Practitioner direction on 2026-06-06 for this recovery"]}
 
-  :open [
-    "Which prior features are required for parity versus candidates for deprecation in this new materialization?"
-    "Should HTTP transport remain first-class in the next design iteration or become an optional package/module?"
-    "Is the current workspace context service too broad and in need of bounded-context splits before further feature growth?"
-    "What rationale drove specific deviation rules and thresholds historically? (partially unreconstructable from current evidence)"
-    "How should legacy .ai compatibility expectations documented in ../conjurer-mcp/ai.md influence this repository's customization layout?"
-    "If materialise/rewrite capabilities are retained, what strictly deterministic boundary should they have without introducing an in-server LLM?"
-    "When a future decision requires in-server LLM support, what explicit trigger criteria would justify changing the no-LLM constraint?"]
+    ;; --- open questions resolved 2026-06-12 using full project scope ---
+
+    {:date "2026-06-12"
+     :decision "HTTP transport is dropped entirely for v1; stdio is the only transport. The old HTTP bridge existed solely as a workaround for a stdio config bug that is now resolved and is not carried forward."
+     :confidence :attested
+     :resolves "Should HTTP transport remain first-class in the next design iteration or become an optional package/module?"
+     :evidence ["conjurer-mcp.cnj decision: 'stdio is the only transport for v1; HTTP is deliberately dropped'"
+                "CLAUDE.md: 'stdio is the only transport. HTTP is deliberately dropped — it existed in the prior code only as a workaround'"]}
+
+    {:date "2026-06-12"
+     :decision "The monolithic workspace-context-service.ts is superseded by eight focused @conjurer/core modules: edn-parser, spec-reader, symbol-index, cnj-model, validation, preflight-resolver, workspace-state, and types. The bounded-context split was made at design time for the new materialisation."
+     :confidence :attested
+     :resolves "Is the current workspace context service too broad and in need of bounded-context splits before further feature growth?"
+     :evidence ["conjurer-mcp.cnj decision: 'Monorepo with a shared @conjurer/core package (parser, types, ...'"
+                "CLAUDE.md module decomposition table — eight single-responsibility modules listed with ceilings"]}
+
+    {:date "2026-06-12"
+     :decision "The v1 feature surface is the 22-tool design across five clusters (retrieval 8, parsing/diff 3, validation 1, project-aware planning 7, foresight 3). The HTTP bridge, bulk-embedding helpers, and the monolithic workspace-context-service are deprecated in favour of the modular @conjurer/core decomposition."
+     :confidence :attested
+     :resolves "Which prior features are required for parity versus candidates for deprecation in this new materialization?"
+     :evidence ["conjurer-mcp.cnj decisions — v1 tool surface (retrieval cluster, project-aware cluster widening)"
+                "mcp-server.cnj — 22 spells define the full tool surface"]}
+
+    {:date "2026-06-12"
+     :decision "Legacy ../conjurer-mcp/ai.md customization expectations are not carried forward. The new repository uses CLAUDE.md as the sole practitioner configuration surface; no .ai compatibility layer is introduced."
+     :confidence :attested
+     :resolves "How should legacy .ai compatibility expectations documented in ../conjurer-mcp/ai.md influence this repository's customization layout?"
+     :evidence ["conjurer-mcp.cnj :references does not include ai.md"
+                "CLAUDE.md is the sole practitioner guidance file in the new repo"]}
+
+    {:date "2026-06-12"
+     :decision "The strictly deterministic boundary is preflight (phases 1-2): resolve references, order dependencies, list target files, report gaps — repeatable with no side effects and no generation. Semantic generation (phase 3) belongs exclusively to the IDE model. The server halts and emits diagnostics on unresolved references rather than generating against an incomplete plan."
+     :confidence :attested
+     :resolves "If materialise/rewrite capabilities are retained, what strictly deterministic boundary should they have without introducing an in-server LLM?"
+     :evidence ["conjurer-mcp.cnj decision: 'Materialisation terminology is fixed: deterministic preflight (phases 1-2) + semantic generation (phase 3)'"
+                "CLAUDE.md two-phase discipline section: 'Default to halting on unresolved references'"]}
+
+    {:date "2026-06-12"
+     :decision "No explicit trigger criteria for reversing the no-LLM constraint are defined. The constraint is intentionally hardened as an absolute rule; the governance question of what would justify reversal is deliberately deferred and currently has no stated escape hatch."
+     :confidence :attested
+     :resolves "When a future decision requires in-server LLM support, what explicit trigger criteria would justify changing the no-LLM constraint?"
+     :evidence ["conjurer-mcp.cnj decision: 'No LLM integration inside the MCP server. The server is purely deterministic.'"
+                "CLAUDE.md: 'Do not put an LLM in the server.' — listed as a hard rule with no stated exception"]}
+
+    {:date "2026-06-12"
+     :decision "Deviation thresholds (max-lines <=400/800, max-lines-per-function <=40, complexity <=10, max-depth <=4, max-params <=3) derive from the normative @tsfpp/eslint-config base ruleset, not from project-local choices. The per-deviation supplemental rationale that may have existed alongside those values is not reconstructable from available evidence."
+     :confidence :strongly-inferred
+     :resolves "What rationale drove specific deviation rules and thresholds historically? (partially unreconstructable from current evidence)"
+     :evidence ["tsfpp-eslint-base-recovered asset — threshold values match @tsfpp/eslint-config dist/base.js enforces list"
+                "Supplemental historical rationale acknowledged as unreconstructable; normative source is the best available evidence"]}]
+
+  :open []
 
   :outputs {
     :mcp-server (target :typescript :standard :team-standard)
