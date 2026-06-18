@@ -273,6 +273,36 @@ type FormAcc = {
   readonly hoists: ReadonlyArray<CnjHoist>;
 };
 
+const appendIfDefined = <T>(
+  items: ReadonlyArray<T>,
+  next: T | undefined,
+): ReadonlyArray<T> => (next !== undefined ? [...items, next] : items);
+
+const updateAccForForm = (
+  acc: FormAcc,
+  elements: ReadonlyArray<EdnNode>,
+  form: string,
+): FormAcc => {
+  switch (form) {
+    case 'charter':
+      return { ...acc, charter: parseCharter(elements) };
+    case 'asset':
+      return { ...acc, assets: appendIfDefined(acc.assets, parseAsset(elements)) };
+    case 'target':
+      return { ...acc, targets: appendIfDefined(acc.targets, parseTarget(elements)) };
+    case 'f/candidate':
+      return { ...acc, candidates: appendIfDefined(acc.candidates, parseCandidate(elements)) };
+    case 'f/hoist':
+      return { ...acc, hoists: appendIfDefined(acc.hoists, parseHoist(elements)) };
+    default: {
+      const domainForm = parseDomainForm(elements);
+      return domainForm !== undefined
+        ? { ...acc, domainForms: [...acc.domainForms, domainForm] }
+        : acc;
+    }
+  }
+};
+
 const processForms = (
   nodes: ReadonlyArray<EdnNode>,
   acc: FormAcc,
@@ -282,31 +312,7 @@ const processForms = (
   if (!isSome(node)) return acc;
   const n = node.value;
   if (n.type !== 'list') return processForms(nodes, acc, i + 1);
-  const form = formName(n.elements);
-  if (form === 'charter') {
-    return processForms(nodes, { ...acc, charter: parseCharter(n.elements) }, i + 1);
-  }
-  if (form === 'asset') {
-    const a = parseAsset(n.elements);
-    return processForms(nodes, { ...acc, assets: a !== undefined ? [...acc.assets, a] : acc.assets }, i + 1);
-  }
-  if (form === 'target') {
-    const t = parseTarget(n.elements);
-    return processForms(nodes, { ...acc, targets: t !== undefined ? [...acc.targets, t] : acc.targets }, i + 1);
-  }
-  if (form === 'f/candidate') {
-    const c = parseCandidate(n.elements);
-    return processForms(nodes, { ...acc, candidates: c !== undefined ? [...acc.candidates, c] : acc.candidates }, i + 1);
-  }
-  if (form === 'f/hoist') {
-    const h = parseHoist(n.elements);
-    return processForms(nodes, { ...acc, hoists: h !== undefined ? [...acc.hoists, h] : acc.hoists }, i + 1);
-  }
-  const d = parseDomainForm(n.elements);
-  if (d !== undefined) {
-    return processForms(nodes, { ...acc, domainForms: [...acc.domainForms, d] }, i + 1);
-  }
-  return processForms(nodes, acc, i + 1);
+  return processForms(nodes, updateAccForForm(acc, n.elements, formName(n.elements)), i + 1);
 };
 
 const defaultCharter: Charter = {

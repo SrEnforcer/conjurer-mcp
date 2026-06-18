@@ -12,6 +12,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { parse, toCnjModel, runMaterialisePreflight, buildWorkspaceSnapshot, topoOrder, computeContextKey } from '@conjurer/core';
+import type { EdnNode } from '@conjurer/core';
 import { isErr, fromNullable, getOrElse, isSome } from '@tsfpp/prelude';
 
 type ToolContent = ReadonlyArray<{ readonly type: 'text'; readonly text: string }>;
@@ -221,6 +222,74 @@ export const handlePreflight = (
   }, null, 2));
 };
 
+type TaskModuleEntry = { readonly module: string; readonly est_lines: number };
+
+const getModuleEntries = (modules: ReadonlyArray<ReadonlyMap<string, EdnNode>>): ReadonlyArray<TaskModuleEntry> =>
+  modules.flatMap((m) => {
+    const modNode = m.get('module');
+    const linesNode = m.get('est-lines');
+    const mod = modNode?.type === 'string' ? modNode.value
+      : modNode?.type === 'symbol' ? modNode.value : undefined;
+    const lines = linesNode?.type === 'number' ? linesNode.value : 0;
+    return mod !== undefined ? [{ module: mod, est_lines: lines }] : [];
+  });
+
+/**
+ * Emit a dependency-ordered materialisation task list for a workspace.
+ *
+ * @param filePath - Entry cnj file path.
+ * @returns Tool text content payload.
+ */
+export const handleMaterialisePlan = (filePath: string): ToolContent => {
+  const abs = resolvePath(filePath);
+  const snapshotRes = buildWorkspaceSnapshot(abs);
+  if (isErr(snapshotRes)) return toContent(`Workspace error: ${snapshotRes.error}`);
+  const snapshot = snapshotRes.value;
+
+  const order = topoOrder(snapshot, abs);
+
+  // DEVIATION(2.2): mutable map construction for target-to-file lookup.
+  const targetFileMap = new Map<string, string>();
+  // DEVIATION(4.2): loop over snapshot to build index.
+  for (const f of snapshot.files.values()) {
+    for (const t of f.doc.targets) targetFileMap.set(t.name, f.path);
+  }
+
+  const tasks = order.map((name, i) => {
+    const file = getOrElse(() => abs)(fromNullable(targetFileMap.get(name)));
+    const entry = snapshot.files.get(file);
+    const target = entry?.doc.targets.find((t) => t.name === name);
+    const deps = Array.from(snapshot.targetEdges.entries())
+      .filter(([t]) => t === name)
+      .flatMap(([, froms]) => froms);
+    const isDirect = isSome(fromNullable(snapshot.targetEdges.get(name)));
+    return {
+      order: i,
+      target: name,
+      file,
+      depends_on: deps,
+      reason: i === 0 ? 'root dependency' : isDirect ? 'direct-dependency' : 'transitive',
+      modules: target !== undefined ? getModuleEntries(target.modules) : [],
+      produces: target?.produces ?? [],
+    };
+  });
+
+  const unresolved = Array.from(snapshot.targetEdges.entries())
+    .flatMap(([targetName, froms]) =>
+      froms
+        .filter((dep) => !snapshot.targetEdges.has(dep))
+        .map((dep) => ({ symbol: dep, expected_in: targetFileMap.get(targetName) ?? abs })),
+    );
+
+  return toContent(JSON.stringify({
+    project_name: snapshot.files.get(abs)?.doc.charter.title ?? 'unknown',
+    tasks,
+    total_steps: tasks.length,
+    cycle_detected: snapshot.cycleDetected,
+    unresolved,
+  }, null, 2));
+};
+
 export const registerProjectTools = (server: McpServer): void => {
   server.registerTool('resolve', {
     description: 'Resolve a .cnj file into dependency-aware target execution order',
@@ -254,4 +323,9 @@ export const registerProjectTools = (server: McpServer): void => {
       entry_files: z.array(z.string()).optional(),
     },
   }, ({ folder, project_name, entry_files }) => ({ content: [...handlePreflight(folder, project_name, entry_files)] }));
+
+  server.registerTool('materialise_plan', {
+    description: 'Given a workspace entry .cnj, emit a fully sequenced dependency-ordered task list: each step\'s target, file, depends_on, modules, and produces. Bridges preflight (what needs doing) to execution (in what order). Fully deterministic.',
+    inputSchema: { file: z.string() },
+  }, ({ file }) => ({ content: [...handleMaterialisePlan(file)] }));
 };

@@ -4,7 +4,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { parse, toCnjModel } from '@conjurer/core';
+import { parse, toCnjModel, effectiveScores } from '@conjurer/core';
 import type { Charter, CnjDocument, CnjCandidateForm, CnjHoist } from '@conjurer/core';
 import type { EdnNode } from '@conjurer/core';
 import { isErr, entriesOfMap, intoMap } from '@tsfpp/prelude';
@@ -103,12 +103,82 @@ type CandSummary = {
   readonly total_score: number;
 };
 
+type ScoreDelta = { readonly before: number; readonly after: number };
+type StatusChange = { readonly id: string; readonly label: string; readonly before: string; readonly after: string };
+type ScoreChange = {
+  readonly id: string;
+  readonly label: string;
+  readonly score_changes: Record<string, ScoreDelta>;
+  readonly total_before: number;
+  readonly total_after: number;
+};
+type HoistedChange = { readonly id: string; readonly label: string; readonly hoist_date: string; readonly into: string };
+
 const candTotal = (c: CnjCandidateForm): number =>
-  Array.from(c.scores.values()).reduce((a, b) => a + b, 0);
+  Array.from(effectiveScores(c).values()).reduce((a, b) => a + b, 0);
 
 const candSummary = (c: CnjCandidateForm): CandSummary => ({
   id: c.id, label: c.label, status: c.status, total_score: candTotal(c),
 });
+
+const scoreKeys = (candidateA: CnjCandidateForm, candidateB: CnjCandidateForm): ReadonlyArray<string> =>
+  Array.from(
+    intoMap(
+      [...effectiveScores(candidateA).keys(), ...effectiveScores(candidateB).keys()]
+        .map((key) => [key, true] as const),
+    ).keys(),
+  );
+
+const buildScoreRecord = (
+  candidateA: CnjCandidateForm,
+  candidateB: CnjCandidateForm,
+): Record<string, ScoreDelta> => {
+  const effA = effectiveScores(candidateA);
+  const effB = effectiveScores(candidateB);
+  return scoreKeys(candidateA, candidateB).reduce<Record<string, ScoreDelta>>((acc, key) => {
+    const before = effA.get(key) ?? 0;
+    const after = effB.get(key) ?? 0;
+    return before === after ? acc : { ...acc, [key]: { before, after } };
+  }, {});
+};
+
+const toHoistedChange = (
+  candidate: CnjCandidateForm,
+  hoistMap: ReadonlyMap<string, CnjHoist>,
+): ReadonlyArray<HoistedChange> => {
+  const hoist = hoistMap.get(candidate.id);
+  return hoist === undefined
+    ? []
+    : [{ id: candidate.id, label: candidate.label, hoist_date: hoist.date, into: hoist.into }];
+};
+
+const toStatusChange = (
+  candidate: CnjCandidateForm,
+  candidateMap: ReadonlyMap<string, CnjCandidateForm>,
+): ReadonlyArray<StatusChange> => {
+  const next = candidateMap.get(candidate.id);
+  return next !== undefined && next.status !== candidate.status
+    ? [{ id: candidate.id, label: candidate.label, before: candidate.status, after: next.status }]
+    : [];
+};
+
+const toScoreChange = (
+  candidate: CnjCandidateForm,
+  candidateMap: ReadonlyMap<string, CnjCandidateForm>,
+): ReadonlyArray<ScoreChange> => {
+  const next = candidateMap.get(candidate.id);
+  if (next === undefined) return [];
+  const scoreChanges = buildScoreRecord(candidate, next);
+  return Object.keys(scoreChanges).length === 0
+    ? []
+    : [{
+      id: candidate.id,
+      label: candidate.label,
+      score_changes: scoreChanges,
+      total_before: candTotal(candidate),
+      total_after: candTotal(next),
+    }];
+};
 
 const diffCandidates = (
   docA: CnjDocument,
@@ -116,9 +186,9 @@ const diffCandidates = (
 ): {
   readonly added: ReadonlyArray<CandSummary>;
   readonly removed: ReadonlyArray<CandSummary>;
-  readonly status_changes: ReadonlyArray<{ readonly id: string; readonly label: string; readonly before: string; readonly after: string }>;
-  readonly score_changes: ReadonlyArray<{ readonly id: string; readonly label: string; readonly score_changes: Record<string, { readonly before: number; readonly after: number }>; readonly total_before: number; readonly total_after: number }>;
-  readonly hoisted: ReadonlyArray<{ readonly id: string; readonly label: string; readonly hoist_date: string; readonly into: string }>;
+  readonly status_changes: ReadonlyArray<StatusChange>;
+  readonly score_changes: ReadonlyArray<ScoreChange>;
+  readonly hoisted: ReadonlyArray<HoistedChange>;
 } => {
   const mapA = intoMap(docA.candidates.map((c) => [c.id, c] as const));
   const mapB = intoMap(docB.candidates.map((c) => [c.id, c] as const));
@@ -127,40 +197,13 @@ const diffCandidates = (
   const added = docB.candidates.filter((c) => !mapA.has(c.id)).map(candSummary);
 
   const removedOrHoisted = docA.candidates.filter((c) => !mapB.has(c.id));
-  const hoisted = removedOrHoisted
-    .filter((c) => hoistMap.has(c.id))
-    .map((c) => {
-      const h = hoistMap.get(c.id)!;
-      return { id: c.id, label: c.label, hoist_date: h.date, into: h.into };
-    });
+  const hoisted = removedOrHoisted.flatMap((candidate) => toHoistedChange(candidate, hoistMap));
   const removed = removedOrHoisted.filter((c) => !hoistMap.has(c.id)).map(candSummary);
 
   const shared = docA.candidates.filter((c) => mapB.has(c.id));
 
-  const status_changes = shared
-    .filter((a) => {
-      const b = mapB.get(a.id);
-      return b !== undefined && b.status !== a.status;
-    })
-    .map((a) => {
-      const b = mapB.get(a.id)!;
-      return { id: a.id, label: a.label, before: a.status, after: b.status };
-    });
-
-  /* eslint-disable functional/prefer-readonly-type, functional/immutable-data -- DEVIATION(2.2): local record accumulation confined to score-diff helper; no external mutation. */
-  const score_changes = shared.flatMap((a) => {
-    const b = mapB.get(a.id)!;
-    const allKeys = new Set([...a.scores.keys(), ...b.scores.keys()]);
-    const changes: Record<string, { readonly before: number; readonly after: number }> = {};
-    for (const key of allKeys) {
-      const before = a.scores.get(key) ?? 0;
-      const after = b.scores.get(key) ?? 0;
-      if (before !== after) changes[key] = { before, after };
-    }
-    if (Object.keys(changes).length === 0) return [];
-    return [{ id: a.id, label: a.label, score_changes: changes, total_before: candTotal(a), total_after: candTotal(b) }];
-  });
-  /* eslint-enable functional/prefer-readonly-type, functional/immutable-data */
+  const status_changes = shared.flatMap((candidate) => toStatusChange(candidate, mapB));
+  const score_changes = shared.flatMap((candidate) => toScoreChange(candidate, mapB));
 
   return { added, removed, status_changes, score_changes, hoisted };
 };

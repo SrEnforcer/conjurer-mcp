@@ -29,6 +29,7 @@ export type {
   CnjDocument,
 } from './cnj-model.js';
 export { toCnjModel } from './cnj-model.js';
+export { effectiveScores } from './candidate-scores.js';
 export type {
   ValidationMode,
   ValidationOptions,

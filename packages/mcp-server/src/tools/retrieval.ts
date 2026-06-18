@@ -62,13 +62,24 @@ const handleSection = (ctx: RetrievalContext, grimoire: string, section: string)
   return toContent(result.value);
 };
 
+const grimoireSymbolSection = (raw: string, symbol: string): string => {
+  const needle = `### \`${symbol}\``;
+  const start = raw.indexOf(needle);
+  if (start === -1) return raw;
+  const after = raw.slice(start + needle.length);
+  const nextSection = after.search(/\n### /);
+  return nextSection === -1 ? raw.slice(start) : raw.slice(start, start + needle.length + nextSection);
+};
+
 const handleExamples = (ctx: RetrievalContext, symbol: string, count: number | undefined = undefined): ToolContent => {
   const rec = lookup(ctx.index, symbol);
   if (!isSome(rec)) return toContent(`Symbol not found: ${symbol}`);
   const gResult = readGrimoire(ctx.reader, rec.value.grimoire);
   if (isErr(gResult)) return toContent(gResult.error);
-  const blocks = getOrElse<ReadonlyArray<string>>(() => [])(fromNullable(gResult.value.match(/```[\s\S]*?```/g)));
-  const limited = getOrElse<ReadonlyArray<string>>(() => blocks)(mapO((c: number) => blocks.slice(0, c))(fromNullable(count)));
+  const section = grimoireSymbolSection(gResult.value, symbol);
+  const blocks = getOrElse<ReadonlyArray<string>>(() => [])(fromNullable(section.match(/```[a-z]*\n[\s\S]*?```/g)));
+  const stripped = blocks.map((b) => b.replace(/^```[a-z]*\n/, '').replace(/```$/, ''));
+  const limited = getOrElse<ReadonlyArray<string>>(() => stripped)(mapO((c: number) => stripped.slice(0, c))(fromNullable(count)));
   return toContent(limited.join('\n\n'));
 };
 

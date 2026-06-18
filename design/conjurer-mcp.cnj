@@ -271,7 +271,24 @@
                 orders clusters by max total — making the backlog triageable in one
                 call. Foresight rationale document written to
                 design/conjurer-spec-foresight-rationale.md and the foresight.md
-                grimoire was accepted into the conjurer-spec. 386/386 tests pass."}]
+                grimoire was accepted into the conjurer-spec. 386/386 tests pass."}
+    {:date "2026-06-12"
+     :decision "materialise_plan hoisted. Given a resolved WorkspaceSnapshot + preflight report,
+                emit a dependency-ordered task list: {order, target, file, depends_on, reason,
+                modules [{module, est_lines}], produces}. Pure formatter over existing data
+                structures — no new core module. Implemented in tools/project.ts."
+     :confidence :attested
+     :evidence ["Preflight resolver confirmed stable on five design .cnj files"
+                "Output schema derived from WorkspaceSnapshot + CnjTarget shapes"
+                "Hoisted 2026-06-12"]}
+    {:date "2026-06-12"
+     :decision "VSIX candidates hoisted (cluster-vsix): candidate-lifecycle-gutter (unicode inline SVG
+                gutter dots, no asset files), charter-ref-lens (show nothing for zero references),
+                disk-lint-decorations (on-save debounced, 500 ms), codelens-candidate-actions
+                (Reassess + Hoist buttons; f/reassess inserted as standalone block after closing paren).
+                All implemented in vscode-extension.cnj candidates session 2026-06-12."
+     :confidence :attested
+     :evidence ["Hoisted 2026-06-12; implementations added to providers/ and commands/"]}]
 
   :open []
 
@@ -500,7 +517,7 @@
   :label   "materialise_plan"
   :cluster :cluster-d
   :added   "2026-06-09"
-  :status  :planned
+  :status  :hoisted
   :scores  {:feasibility 8 :elegance 9 :containment 8 :value 9}
   :conditions ["define the task-list output shape (step inputs, outputs, Conjurer form
                 refs) against a real preflight report before committing to the schema"]
@@ -636,6 +653,14 @@
              was confirmed stable, and the I/O walk pattern was established by the
              existing validate_cnj tooling. Implemented with readdirSync recursive walk
              and suffix-based module matching (catches tools/retrieval.ts-style paths).")
+
+(f/hoist :of :materialise_plan
+  :date     "2026-06-12"
+  :into     :charter-decision/materialise_plan-2026-06-12
+  :outcomes [:materialise-plan-tool-registered :task-list-output :project-tools-extended]
+  :note     "Condition met: output schema decided ({tasks: [{order, target, file, depends_on,
+             reason, modules, produces}]}). Preflight resolver confirmed stable.
+             Implemented in tools/project.ts alongside handlePreflight.")
 
 ;; ── Foresight-layer tool candidates (added 2026-06-10) ───────────────
 
