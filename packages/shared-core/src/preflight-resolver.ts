@@ -5,6 +5,7 @@ import type { Result } from '@tsfpp/prelude';
 import { parse } from './edn-parser.js';
 import { toCnjModel } from './cnj-model.js';
 import type { CnjDocument, CnjTarget } from './cnj-model.js';
+import { bindingNames } from './references.js';
 
 export type ResolvedRef = {
   readonly from: string;
@@ -53,8 +54,10 @@ const parseDocs = (files: ReadonlyArray<string>): ReadonlyArray<CnjDocument> =>
     return isErr(r) ? [] : [r.value];
   });
 
-const allTargetNames = (docs: ReadonlyArray<CnjDocument>): ReadonlyArray<string> =>
-  docs.flatMap((d) => d.targets.map((t) => t.name));
+// A target's :from may name another target or any binding (core.md · target): def forms,
+// :manifest bindings and target names, written as symbol or keyword.
+const allKnownNames = (docs: ReadonlyArray<CnjDocument>): ReadonlyArray<string> =>
+  docs.flatMap(bindingNames);
 
 const modulePathsOf = (target: CnjTarget): ReadonlyArray<string> => {
   const pkg = `packages/${target.name}/src/`;
@@ -73,7 +76,7 @@ const checkTargetDeps = (
   const isResolved = known.includes(dep);
   return isResolved
     ? { resolved: [{ from: sourceFile, to: dep, outsideFolder: false }], unresolved: [] }
-    : { resolved: [], unresolved: [{ from: sourceFile, target: dep, reason: `Target '${dep}' not declared` }] };
+    : { resolved: [], unresolved: [{ from: sourceFile, target: dep, reason: `'${dep}' is neither a declared target nor a binding (def or :manifest)` }] };
 };
 
 const collectDeps = (
@@ -108,7 +111,7 @@ export const runMaterialisePreflight = (
     : findCnjFiles(folder);
   if (files.length === 0) return err(`No .cnj files found in ${folder}`);
   const docs = parseDocs(files);
-  const known = allTargetNames(docs);
+  const known = allKnownNames(docs);
   const deps = collectDeps(docs, known);
   const missing = collectMissingPaths(docs, folder);
   const name = projectName ?? 'conjurer-mcp';

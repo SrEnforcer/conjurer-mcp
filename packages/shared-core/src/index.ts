@@ -38,7 +38,7 @@ export type {
   Violation,
   ValidationReport,
 } from './validation.js';
-export { validateCnj, checkSymbolUsage, checkReferences, lintConventions, VALIDATION_RULE_DESCRIPTIONS } from './validation.js';
+export { validateCnj, checkSymbolUsage, checkReferences, checkFormReferences, lintConventions, VALIDATION_RULE_DESCRIPTIONS } from './validation.js';
 export { buildIndex } from './symbol-index.js';
 export type {
   ResolvedRef,
@@ -47,5 +47,7 @@ export type {
   MaterialisePreflightReport,
 } from './preflight-resolver.js';
 export { runMaterialisePreflight } from './preflight-resolver.js';
-export type { ParsedFileEntry, WorkspaceSnapshot } from './workspace-state.js';
+export type { ParsedFileEntry, WorkspaceSnapshot, UnresolvedDependency } from './workspace-state.js';
 export { buildWorkspaceSnapshot, topoOrder, computeContextKey } from './workspace-state.js';
+export type { ReferenceKind, FormReference, ReferenceSite } from './references.js';
+export { parseReference, bareName, declaredNames, bindingNames, referenceSites } from './references.js';

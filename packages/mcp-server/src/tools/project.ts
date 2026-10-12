@@ -109,13 +109,10 @@ export const handleResolve = (
   // DEVIATION(4.2): Loop used to build adjacency output record.
   for (const [k, v] of snapshot.targetEdges.entries()) graphOut[k] = v;
 
-  const unresolved = Array.from(snapshot.targetEdges.entries())
-    .flatMap(([targetName, froms]) => froms
-      .filter((dep) => !snapshot.targetEdges.has(dep))
-      .map((dep) => ({
-        symbol: dep,
-        expected_in: getOrElse(() => abs)(fromNullable(targetFileMap.get(targetName))),
-      })));
+  const unresolved = snapshot.unresolvedDeps.map(({ target, dependency }) => ({
+    symbol: dependency,
+    expected_in: getOrElse(() => abs)(fromNullable(targetFileMap.get(target))),
+  }));
 
   const planId = computeContextKey(snapshot, [abs]);
   return toContent(JSON.stringify({
@@ -274,12 +271,10 @@ export const handleMaterialisePlan = (filePath: string): ToolContent => {
     };
   });
 
-  const unresolved = Array.from(snapshot.targetEdges.entries())
-    .flatMap(([targetName, froms]) =>
-      froms
-        .filter((dep) => !snapshot.targetEdges.has(dep))
-        .map((dep) => ({ symbol: dep, expected_in: targetFileMap.get(targetName) ?? abs })),
-    );
+  const unresolved = snapshot.unresolvedDeps.map(({ target, dependency }) => ({
+    symbol: dependency,
+    expected_in: targetFileMap.get(target) ?? abs,
+  }));
 
   return toContent(JSON.stringify({
     project_name: snapshot.files.get(abs)?.doc.charter.title ?? 'unknown',

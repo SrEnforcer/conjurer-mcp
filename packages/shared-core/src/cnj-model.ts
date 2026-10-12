@@ -1,6 +1,7 @@
 import { ok, err, intoMap, isSome, fromNullable } from '@tsfpp/prelude';
 import type { Result } from '@tsfpp/prelude';
 import type { EdnNode } from './edn-parser.js';
+import { bareName } from './references.js';
 
 export type Charter = {
   readonly title: string;
@@ -32,6 +33,7 @@ export type CnjDomainForm = {
   readonly formType: string;
   readonly name: string;
   readonly requires: ReadonlyArray<string>;
+  readonly forbids: ReadonlyArray<string>;
   readonly prefers: ReadonlyArray<string>;
   readonly style: ReadonlyArray<string>;
   readonly deferred: ReadonlyArray<string>;
@@ -172,7 +174,7 @@ const parseTarget = (elems: ReadonlyArray<EdnNode>): CnjTarget | undefined => {
   const name = nodeStr(nameNode.value);
   if (name.length === 0) return undefined;
   const kv = kvMap(elems, 2);
-  const from = getStr(kv, 'from');
+  const from = bareName(getStr(kv, 'from'));
   return {
     name,
     language: getStr(kv, 'language'),
@@ -257,6 +259,7 @@ const parseDomainForm = (elems: ReadonlyArray<EdnNode>): CnjDomainForm | undefin
     formType: head.value.value,
     name,
     requires: getList(kv, 'requires'),
+    forbids: getList(kv, 'forbids'),
     prefers: getList(kv, 'prefers'),
     style: getList(kv, 'style'),
     deferred: getList(kv, 'deferred'),

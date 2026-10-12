@@ -130,8 +130,8 @@ describe('validateCnj — intent topology', () => {
   const topologyDoc = (formSrc: string): CnjDocument | undefined =>
     parseDoc(`(charter "P" :version "0.1.0" :goals ["g"]) ${formSrc}`);
 
-  it('passes when :requires items all appear in :manifest', () => {
-    const doc = topologyDoc('(conjure do-it :requires [feature-a] :manifest [feature-a])');
+  it('does not read :manifest as a capability list (Q-12)', () => {
+    const doc = topologyDoc('(conjure do-it :requires [:audit-trail :idempotency] :manifest do-it-result)');
     expect(doc).toBeDefined();
     if (doc === undefined) return;
     const report = validateCnj(doc, 'authored');
@@ -139,50 +139,38 @@ describe('validateCnj — intent topology', () => {
     expect(top.length).toBe(0);
   });
 
-  it('rule (a): errors when :requires item is missing from :manifest', () => {
-    const doc = topologyDoc('(conjure do-it :requires [feature-a] :manifest [])');
+  it('errors when an item is both :requires and :forbids', () => {
+    const doc = topologyDoc('(conjure do-it :requires [:silent-retries] :forbids [:silent-retries])');
     expect(doc).toBeDefined();
     if (doc === undefined) return;
-    const report = validateCnj(doc, 'authored');
-    const vs = report.violations.filter((v) => v.rule === 'intent-topology-requires');
+    const vs = validateCnj(doc, 'authored').violations.filter((v) => v.rule === 'intent-topology-forbids');
     expect(vs.length).toBe(1);
-    expect(vs[0]?.message).toContain('feature-a');
+    expect(vs[0]?.severity).toBe('error');
   });
 
-  it('rule (b): errors when :deferred item appears in :manifest (authored mode)', () => {
-    const doc = topologyDoc('(conjure do-it :deferred [extra] :manifest [extra])');
+  it('errors when an item is both :requires and :deferred (authored mode)', () => {
+    const doc = topologyDoc('(conjure do-it :requires [feat] :deferred [feat])');
     expect(doc).toBeDefined();
     if (doc === undefined) return;
-    const report = validateCnj(doc, 'authored');
-    const vs = report.violations.filter((v) => v.rule === 'intent-topology-deferred');
+    const vs = validateCnj(doc, 'authored').violations.filter((v) => v.rule === 'intent-topology-conflict');
     expect(vs.length).toBe(1);
   });
 
-  it('rule (b): relaxed in :recovered mode', () => {
-    const doc = topologyDoc('(conjure do-it :deferred [extra] :manifest [extra])');
+  it('downgrades topology conflicts to warnings in :recovered mode', () => {
+    const doc = topologyDoc('(conjure do-it :requires [feat] :deferred [feat])');
     expect(doc).toBeDefined();
     if (doc === undefined) return;
-    const report = validateCnj(doc, 'recovered');
-    const vs = report.violations.filter((v) => v.rule === 'intent-topology-deferred');
-    expect(vs.length).toBe(0);
+    const vs = validateCnj(doc, 'recovered').violations.filter((v) => v.rule === 'intent-topology-conflict');
+    expect(vs.map((v) => v.severity)).toEqual(['warning']);
   });
 
-  it('rule (c): errors when item is both :requires and :deferred (authored mode)', () => {
-    const doc = topologyDoc('(conjure do-it :requires [feat] :deferred [feat] :manifest [feat])');
+  it('warns when an item is both preferred and forbidden', () => {
+    const doc = topologyDoc('(conjure do-it :prefers [:analytics] :forbids [:analytics])');
     expect(doc).toBeDefined();
     if (doc === undefined) return;
-    const report = validateCnj(doc, 'authored');
-    const vs = report.violations.filter((v) => v.rule === 'intent-topology-conflict');
+    const vs = validateCnj(doc, 'authored').violations.filter((v) => v.rule === 'intent-topology-prefers-forbids');
     expect(vs.length).toBe(1);
-  });
-
-  it('rule (c): relaxed in :recovered mode', () => {
-    const doc = topologyDoc('(conjure do-it :requires [feat] :deferred [feat] :manifest [feat])');
-    expect(doc).toBeDefined();
-    if (doc === undefined) return;
-    const report = validateCnj(doc, 'recovered');
-    const vs = report.violations.filter((v) => v.rule === 'intent-topology-conflict');
-    expect(vs.length).toBe(0);
+    expect(vs[0]?.severity).toBe('warning');
   });
 
   it('skips forms with no topology fields', () => {

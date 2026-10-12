@@ -1,7 +1,9 @@
-import { isDefined } from '@tsfpp/prelude';
+import { isDefined, isSome } from '@tsfpp/prelude';
 import type { EdnNode } from './edn-parser.js';
 import type { CnjDocument, CnjDomainForm } from './cnj-model.js';
 import type { SymbolIndex } from './symbol-index.js';
+import { bareName, declaredNames, parseReference, referenceSites } from './references.js';
+import type { ReferenceKind, ReferenceSite } from './references.js';
 
 export type ValidationMode = 'authored' | 'recovered';
 
@@ -58,37 +60,36 @@ const checkAssets = (doc: CnjDocument): ReadonlyArray<Violation> =>
   );
 
 const hasTopologyFields = (form: CnjDomainForm): boolean =>
-  form.requires.length > 0 || form.deferred.length > 0 || form.manifest.length > 0 || form.prefers.length > 0;
+  form.requires.length > 0 || form.forbids.length > 0 || form.deferred.length > 0 || form.prefers.length > 0;
 
 const topologyLocation = (form: CnjDomainForm): string =>
   `${form.formType}:${form.name.length > 0 ? form.name : '(unnamed)'}`;
 
+const overlap = (left: ReadonlyArray<string>, right: ReadonlyArray<string>): ReadonlyArray<string> => {
+  const rightKeys = right.map((item) => item.toLowerCase());
+  return left.filter((item) => rightKeys.includes(item.toLowerCase()));
+};
+
+// `:manifest` is a result binding (core.md · conjure), not a list of capabilities, so
+// topology is checked only for contradictions between the topology slots themselves.
 const checkTopologyForm = (form: CnjDomainForm, mode: ValidationMode): ReadonlyArray<Violation> => {
   if (!hasTopologyFields(form)) return [];
   const loc = topologyLocation(form);
-  const manifested = new Set(form.manifest.map((s) => s.toLowerCase()));
-  const deferred = new Set(form.deferred.map((s) => s.toLowerCase()));
+  const severity = mode === 'authored' ? 'error' : 'warning';
 
-  // Rule (a): every :requires item must appear in :manifest — enforced in both modes
-  const requiresViolations: ReadonlyArray<Violation> = form.requires
-    .filter((item) => !manifested.has(item.toLowerCase()))
-    .map((item) => mkV({ rule: 'intent-topology-requires', severity: 'error', location: loc, message: `:requires item '${item}' is not in :manifest` }));
+  // A load-bearing capability cannot also be forbidden: the spec says surface it, never resolve it.
+  const forbidsConflicts: ReadonlyArray<Violation> = overlap(form.requires, form.forbids)
+    .map((item) => mkV({ rule: 'intent-topology-forbids', severity, location: loc, message: `'${item}' cannot be both :requires and :forbids` }));
 
-  // Rule (b): no :deferred item may appear in :manifest — relaxed in :recovered
-  const deferredViolations: ReadonlyArray<Violation> = mode === 'authored'
-    ? form.deferred
-      .filter((item) => manifested.has(item.toLowerCase()))
-      .map((item) => mkV({ rule: 'intent-topology-deferred', severity: 'error', location: loc, message: `:deferred item '${item}' must not appear in :manifest` }))
-    : [];
+  // A load-bearing capability cannot also be deferred.
+  const deferredConflicts: ReadonlyArray<Violation> = overlap(form.requires, form.deferred)
+    .map((item) => mkV({ rule: 'intent-topology-conflict', severity, location: loc, message: `'${item}' cannot be both :requires and :deferred` }));
 
-  // Rule (c): no item may be both :requires and :deferred — relaxed in :recovered
-  const conflictViolations: ReadonlyArray<Violation> = mode === 'authored'
-    ? form.requires
-      .filter((item) => deferred.has(item.toLowerCase()))
-      .map((item) => mkV({ rule: 'intent-topology-conflict', severity: 'error', location: loc, message: `'${item}' cannot be both :requires and :deferred` }))
-    : [];
+  // A preference for something forbidden is always overridden; flag it so the intent is visible.
+  const preferenceConflicts: ReadonlyArray<Violation> = overlap(form.prefers, form.forbids)
+    .map((item) => mkV({ rule: 'intent-topology-prefers-forbids', severity: 'warning', location: loc, message: `'${item}' is both preferred and forbidden; :forbids wins` }));
 
-  return [...requiresViolations, ...deferredViolations, ...conflictViolations];
+  return [...forbidsConflicts, ...deferredConflicts, ...preferenceConflicts];
 };
 
 const checkIntentTopology = (doc: CnjDocument, mode: ValidationMode): ReadonlyArray<Violation> =>
@@ -130,15 +131,54 @@ const checkDecisionsConventions = (doc: CnjDocument): ReadonlyArray<Violation> =
     const date = ednStr(entry.get('date'));
     const decision = ednStr(entry.get('decision'));
     const loc = `charter.decisions[${i}]`;
-    const vs: Array<Violation> = [];
-    if (date.length === 0)
-      vs.push(mkV({ rule: 'decisions-entry-shape', severity: 'warning', location: loc, message: `Decision entry at index ${i} is missing a :date value` }));
-    else if (!DATE_RE.test(date))
-      vs.push(mkV({ rule: 'decisions-date-format', severity: 'warning', location: `${loc}.date`, message: `Decision date '${date}' should be in YYYY-MM-DD format` }));
-    if (decision.length === 0)
-      vs.push(mkV({ rule: 'decisions-entry-shape', severity: 'warning', location: loc, message: `Decision entry at index ${i} is missing a :decision value` }));
-    return vs;
+    const dateViolations: ReadonlyArray<Violation> = date.length === 0
+      ? [mkV({ rule: 'decisions-entry-shape', severity: 'warning', location: loc, message: `Decision entry at index ${i} is missing a :date value` })]
+      : DATE_RE.test(date)
+        ? []
+        : [mkV({ rule: 'decisions-date-format', severity: 'warning', location: `${loc}.date`, message: `Decision date '${date}' should be in YYYY-MM-DD format` })];
+    const decisionViolations: ReadonlyArray<Violation> = decision.length === 0
+      ? [mkV({ rule: 'decisions-entry-shape', severity: 'warning', location: loc, message: `Decision entry at index ${i} is missing a :decision value` })]
+      : [];
+    return [...dateViolations, ...decisionViolations];
   });
+
+const checkDecisionIds = (doc: CnjDocument): ReadonlyArray<Violation> => {
+  const ids = doc.charter.decisions.map((entry) => bareName(ednStr(entry.get('id'))));
+  return ids.flatMap((id, i): ReadonlyArray<Violation> =>
+    id.length > 0 && ids.indexOf(id) !== i
+      ? [mkV({ rule: 'decision-id-unique', severity: 'error', location: `charter.decisions[${i}].id`, message: `Decision id '${id}' is already used by an earlier entry` })]
+      : []);
+};
+
+const siteReference = (site: ReferenceSite): { readonly kind: ReferenceKind; readonly name: string } | undefined => {
+  const parsed = parseReference(site.raw);
+  if (isSome(parsed)) return parsed.value;
+  return site.impliedKind !== undefined ? { kind: site.impliedKind, name: bareName(site.raw) } : undefined;
+};
+
+/**
+ * Check reference keywords (`f/hoist :into`, decision `:supersedes`) against the names this
+ * document declares (core.md · Names and references). Unresolved references are warnings:
+ * the declaration may live in another file of the workspace.
+ *
+ * @param doc - The parsed document.
+ * @returns Violations for malformed or unresolved references and duplicate decision ids.
+ */
+export const checkFormReferences = (doc: CnjDocument): ReadonlyArray<Violation> => {
+  const declared = declaredNames(doc);
+  const siteViolations = referenceSites(doc).flatMap((site): ReadonlyArray<Violation> => {
+    const ref = siteReference(site);
+    if (ref === undefined) {
+      return [mkV({ rule: 'reference-kind', severity: 'warning', location: site.location, message: `'${site.raw}' is not a reference keyword; write it as :decision/<id>, :target/<name>, :spell/<name> or :core/<name>` })];
+    }
+    if (ref.kind === 'core') return [];
+    const known = declared.get(ref.kind) ?? [];
+    return known.includes(ref.name)
+      ? []
+      : [mkV({ rule: 'reference-resolves', severity: 'warning', location: site.location, message: `${ref.kind} '${ref.name}' is not declared in this file` })];
+  });
+  return [...checkDecisionIds(doc), ...siteViolations];
+};
 
 const checkDecisionsOrder = (doc: CnjDocument): ReadonlyArray<Violation> => {
   const dated = doc.charter.decisions
@@ -176,12 +216,17 @@ export const VALIDATION_RULE_DESCRIPTIONS: Readonly<Record<string, ReadonlyArray
     'should declare a :language (target-has-language)',
   ],
   asset: ['must have a non-empty name (asset-name)'],
-  spell: [
-    'every :requires item must appear in :manifest (intent-topology-requires)',
-    'no :deferred item may appear in :manifest (intent-topology-deferred)',
+  topology: [
+    'no item may be both :requires and :forbids (intent-topology-forbids)',
     'no item may be both :requires and :deferred (intent-topology-conflict)',
+    'an item both :prefers and :forbids is flagged; :forbids wins (intent-topology-prefers-forbids)',
+  ],
+  references: [
+    'f/hoist :into and decision :supersedes resolve to a declared name (reference-resolves)',
+    'f/hoist :into is a reference keyword such as :decision/<id> (reference-kind)',
   ],
   decisions: [
+    'decision :id values are unique (decision-id-unique)',
     'each entry must have a non-empty :date and :decision (decisions-entry-shape)',
     ':date value must be in YYYY-MM-DD format (decisions-date-format)',
     'entries should be in non-decreasing date order (decisions-chronological-order)',
@@ -212,7 +257,10 @@ export const validateCnj = (
       ? checkReferences(options.referencesStatus)
       : [];
   const conventionViolations: ReadonlyArray<Violation> = lintConventions(doc);
-  const violations = [...coreViolations, ...symbolViolations, ...referenceViolations, ...conventionViolations];
+  const formReferenceViolations: ReadonlyArray<Violation> = checkFormReferences(doc);
+  const violations = [
+    ...coreViolations, ...symbolViolations, ...referenceViolations, ...formReferenceViolations, ...conventionViolations,
+  ];
   return {
     valid: violations.every((viol) => viol.severity !== 'error'),
     mode,
