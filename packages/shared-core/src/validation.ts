@@ -4,6 +4,10 @@ import type { CnjDocument, CnjDomainForm } from './cnj-model.js';
 import type { SymbolIndex } from './symbol-index.js';
 import { bareName, declaredNames, parseReference, referenceSites } from './references.js';
 import type { ReferenceKind, ReferenceSite } from './references.js';
+import { EMPTY_PRELUDE, preludeHeads } from './prelude.js';
+import type { Prelude } from './prelude.js';
+import { findEnsureSites, unverifiableAtMcp } from './postconditions.js';
+import { lintRetiredForms } from './migration-lint.js';
 
 export type ValidationMode = 'authored' | 'recovered';
 
@@ -16,6 +20,8 @@ export type ValidationOptions = {
   readonly index?: SymbolIndex;
   readonly symbolRefs?: ReadonlyArray<string>;
   readonly referencesStatus?: ReadonlyArray<ReferenceStatus>;
+  /** The parsed forms, for rules that read expressions: prelude checks and retired forms. */
+  readonly ast?: ReadonlyArray<EdnNode>;
 };
 
 export type ValidationRule = {
@@ -100,7 +106,7 @@ export const checkSymbolUsage = (
   index: SymbolIndex,
 ): ReadonlyArray<Violation> =>
   symbolRefs
-    .filter((sym) => !index.symbols.has(sym))
+    .filter((sym) => !index.symbols.has(sym) && !preludeHeads(index.prelude ?? EMPTY_PRELUDE).includes(sym))
     .map((sym) =>
       mkV({ rule: 'symbol-usage', severity: 'warning', location: 'document', message: `Symbol '${sym}' is not in the Conjurer index` }),
     );
@@ -199,6 +205,18 @@ const checkTargetConventions = (doc: CnjDocument): ReadonlyArray<Violation> =>
       : [],
   );
 
+/**
+ * Structural postconditions that name `:mcp` as their layer but use a semantic function:
+ * the MCP layer cannot check them, so the claim is flagged (core.md · ensure; The prelude).
+ *
+ * @param forms - Parsed top-level forms.
+ * @param prelude - The prelude of the spec in use.
+ * @returns One warning per such predicate.
+ */
+export const checkEnsurePrelude = (forms: ReadonlyArray<EdnNode>, prelude: Prelude): ReadonlyArray<Violation> =>
+  unverifiableAtMcp(findEnsureSites(forms), prelude).map((u) =>
+    mkV({ rule: 'ensure-mcp-prelude', severity: 'warning', location: u.owner, message: `:structural ${u.predicate} uses ${u.heads.join(', ')}, outside the prelude: :mcp cannot check it; it is enforced at :llm` }));
+
 export const lintConventions = (doc: CnjDocument): ReadonlyArray<Violation> => [
   ...checkDecisionsConventions(doc),
   ...checkDecisionsOrder(doc),
@@ -221,6 +239,12 @@ export const VALIDATION_RULE_DESCRIPTIONS: Readonly<Record<string, ReadonlyArray
     'no item may be both :requires and :deferred (intent-topology-conflict)',
     'an item both :prefers and :forbids is flagged; :forbids wins (intent-topology-prefers-forbids)',
   ],
+  ensure: [
+    ':structural predicates verified via :mcp are written in the prelude (ensure-mcp-prelude)',
+  ],
+  retired: [
+    'forms retired in October 2026 are flagged with their replacement (deprecated-*)',
+  ],
   references: [
     'f/hoist :into and decision :supersedes resolve to a declared name (reference-resolves)',
     'f/hoist :into is a reference keyword such as :decision/<id> (reference-kind)',
@@ -237,29 +261,41 @@ export const VALIDATION_RULE_DESCRIPTIONS: Readonly<Record<string, ReadonlyArray
   ritual: ['steps must form an ordered list'],
 };
 
+const indexViolations = (options: ValidationOptions | undefined): ReadonlyArray<Violation> => {
+  const index = options?.index;
+  if (index === undefined) return [];
+  const symbolViolations = isDefined(options?.symbolRefs) ? checkSymbolUsage(options.symbolRefs, index) : [];
+  const preludeViolations = isDefined(index.prelude) ? checkEnsurePrelude(options?.ast ?? [], index.prelude) : [];
+  return [...symbolViolations, ...preludeViolations];
+};
+
+const optionalViolations = (options: ValidationOptions | undefined): ReadonlyArray<Violation> => [
+  ...indexViolations(options),
+  ...(isDefined(options?.referencesStatus) ? checkReferences(options.referencesStatus) : []),
+  ...lintRetiredForms(options?.ast ?? []),
+];
+
+/**
+ * Validate a `.cnj` document.
+ *
+ * @param doc - The parsed document.
+ * @param mode - `authored` or `recovered`.
+ * @param options - Symbol index, symbol references, reference status and parsed forms, when available.
+ * @returns The report; valid when no violation is an error.
+ */
 export const validateCnj = (
   doc: CnjDocument,
   mode: ValidationMode,
   options?: ValidationOptions,
 ): ValidationReport => {
-  const coreViolations: ReadonlyArray<Violation> = [
+  const violations: ReadonlyArray<Violation> = [
     ...checkCharter(doc, mode),
     ...checkTargets(doc),
     ...checkAssets(doc),
     ...checkIntentTopology(doc, mode),
-  ];
-  const symbolViolations: ReadonlyArray<Violation> =
-    isDefined(options?.index) && isDefined(options?.symbolRefs)
-      ? checkSymbolUsage(options.symbolRefs, options.index)
-      : [];
-  const referenceViolations: ReadonlyArray<Violation> =
-    isDefined(options?.referencesStatus)
-      ? checkReferences(options.referencesStatus)
-      : [];
-  const conventionViolations: ReadonlyArray<Violation> = lintConventions(doc);
-  const formReferenceViolations: ReadonlyArray<Violation> = checkFormReferences(doc);
-  const violations = [
-    ...coreViolations, ...symbolViolations, ...referenceViolations, ...formReferenceViolations, ...conventionViolations,
+    ...checkFormReferences(doc),
+    ...optionalViolations(options),
+    ...lintConventions(doc),
   ];
   return {
     valid: violations.every((viol) => viol.severity !== 'error'),

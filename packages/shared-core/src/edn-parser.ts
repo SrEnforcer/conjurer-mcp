@@ -4,7 +4,7 @@ import type { Result } from '@tsfpp/prelude';
 export type TokenType =
   | 'lparen' | 'rparen'
   | 'lbracket' | 'rbracket'
-  | 'lbrace' | 'rbrace'
+  | 'lbrace' | 'rbrace' | 'lset'
   | 'symbol' | 'keyword' | 'string' | 'number' | 'boolean' | 'nil' | 'eof';
 
 export type Token = {
@@ -24,6 +24,8 @@ export type ParseError = {
 export type EdnList = {
   readonly type: 'list';
   readonly elements: ReadonlyArray<EdnNode>;
+  /** How the sequence was written: absent for `( )`, `vector` for `[ ]`, `set` for `#{ }`. */
+  readonly delimiter?: 'vector' | 'set';
   readonly line: number;
   readonly column: number;
 };
@@ -128,6 +130,10 @@ const lexNext = (ns: LS): Result<LR, ParseError> => {
   const c = curC(ns);
   const btype = BRACKETS[c];
   if (btype !== undefined) return ok({ token: { type: btype, value: c, line: ns.line, column: ns.column }, next: advL(ns) });
+  if (c === '#' && peekC(ns) === '{') return ok({ token: { type: 'lset', value: '#{', line: ns.line, column: ns.column }, next: advL(advL(ns)) });
+  if (c === '|') {
+    return err(mkErr("Unexpected character '|': the bar is signature notation only; write a choice as (one-of ...)", ns.line, ns.column));
+  }
   if (c === ':') return lexKw(ns);
   if (c === '"') return lexStr(ns);
   if (isNumOrNeg(ns, c)) return lexNum(ns);
@@ -167,7 +173,7 @@ const collectEl = (s: PS, acc: ReadonlyArray<EdnNode>, ctx: ElCtx): Result<{ rea
   return collectEl(r.value.next, [...acc, r.value.value], ctx);
 };
 
-type BrCtx = { readonly open: string; readonly close: string };
+type BrCtx = { readonly open: string; readonly close: string; readonly delimiter?: 'vector' | 'set' };
 const parseSeq = (s: PS, br: BrCtx, recur: RFn): PR<EdnList> => {
   const t = pCur(s);
   const o = pEat(s, br.open, `Expected ${br.open}`);
@@ -176,7 +182,8 @@ const parseSeq = (s: PS, br: BrCtx, recur: RFn): PR<EdnList> => {
   if (isErr(el)) return err(el.error);
   const c = pEat(el.value.next, br.close, `Expected ${br.close}`);
   if (isErr(c)) return err(c.error);
-  return ok({ value: { type: 'list', elements: el.value.elems, line: t.line, column: t.column }, next: c.value.next });
+  const delimiter = br.delimiter !== undefined ? { delimiter: br.delimiter } : {};
+  return ok({ value: { type: 'list', elements: el.value.elems, line: t.line, column: t.column, ...delimiter }, next: c.value.next });
 };
 
 const collectEnt = (
@@ -209,10 +216,16 @@ const parseM = (s: PS, recur: RFn): PR<EdnMap> => {
 const unquote = (s: string): string =>
   s.slice(1, -1).replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
 
+const COLLECTIONS: ReadonlyMap<string, BrCtx> = intoMap<string, BrCtx>([
+  ['lbracket', { open: 'lbracket', close: 'rbracket', delimiter: 'vector' }],
+  ['lset', { open: 'lset', close: 'rbrace', delimiter: 'set' }],
+]);
+
 const parseExpr = (s: PS): PR<EdnNode> => {
   const t = pCur(s);
   if (t.type === 'lparen')   return parseSeq(s, { open: 'lparen',   close: 'rparen'  }, parseExpr);
-  if (t.type === 'lbracket') return parseSeq(s, { open: 'lbracket', close: 'rbracket' }, parseExpr);
+  const collection = COLLECTIONS.get(t.type);
+  if (collection !== undefined) return parseSeq(s, collection, parseExpr);
   if (t.type === 'lbrace')   return parseM(s, parseExpr);
   if (t.type === 'keyword')  return ok({ value: { type: 'keyword', value: t.value, line: t.line, column: t.column }, next: pAdv(s) });
   if (t.type === 'symbol')   return ok({ value: { type: 'symbol',  value: t.value, line: t.line, column: t.column }, next: pAdv(s) });

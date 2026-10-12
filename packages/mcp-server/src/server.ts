@@ -14,6 +14,7 @@ import { registerProjectTools } from './tools/project.js';
 import { registerLensTools } from './tools/lenses.js';
 import { registerDiffTools } from './tools/diff.js';
 import { registerForesightTools } from './tools/foresight.js';
+import { registerPostconditionTools } from './tools/postconditions.js';
 import { registerGrimoireResources } from './resources.js';
 
 const emptyIndex: SymbolIndex = { symbols: intoMap([]), grimoires: intoMap([]) };
@@ -51,6 +52,7 @@ export const main = async (): Promise<void> => {
   registerLensTools(server);
   registerDiffTools(server);
   registerForesightTools(server);
+  registerPostconditionTools(server, { index });
   // eslint-disable-next-line no-restricted-syntax
   const transport = new StdioServerTransport();
   await server.connect(transport);

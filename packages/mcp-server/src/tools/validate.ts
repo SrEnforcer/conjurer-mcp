@@ -42,8 +42,8 @@ export const handleValidate = (
     doc.value,
     parseMode(mode),
     isDefined(index) && isDefined(symbolRefs)
-      ? { index, symbolRefs, referencesStatus }
-      : { referencesStatus },
+      ? { index, symbolRefs, referencesStatus, ast: parsed.value }
+      : { referencesStatus, ast: parsed.value },
   );
   const effectiveValid = strict === true ? report.violations.length === 0 : report.valid;
   return toContent(JSON.stringify(

@@ -38,7 +38,10 @@ export type {
   Violation,
   ValidationReport,
 } from './validation.js';
-export { validateCnj, checkSymbolUsage, checkReferences, checkFormReferences, lintConventions, VALIDATION_RULE_DESCRIPTIONS } from './validation.js';
+export {
+  validateCnj, checkSymbolUsage, checkReferences, checkFormReferences, checkEnsurePrelude, lintConventions,
+  VALIDATION_RULE_DESCRIPTIONS,
+} from './validation.js';
 export { buildIndex } from './symbol-index.js';
 export type {
   ResolvedRef,
@@ -55,3 +58,8 @@ export type {
   ForesightHealthOptions, ForesightHealthReport, StaleCandidate, ThinRationale, OrphanedHoist, HighScoreNoConditions,
 } from './foresight-health.js';
 export { computeForesightHealth, candidateTotal, daysBetween, todayISO, ACTIVE_CANDIDATE_STATUSES } from './foresight-health.js';
+export type { Prelude, PreludeValue, EvalIssue } from './prelude.js';
+export { EMPTY_PRELUDE, parsePrelude, preludeHeads, semanticHeads, isPreludeExpr, evaluate } from './prelude.js';
+export type { EnsureSite, PredicateOutcome, JsonValue } from './postconditions.js';
+export { findEnsureSites, checkPredicate, fromJson, printEdn, unverifiableAtMcp } from './postconditions.js';
+export { lintRetiredForms } from './migration-lint.js';

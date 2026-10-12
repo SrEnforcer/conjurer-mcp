@@ -6,10 +6,14 @@ import type { SymbolRecord, GrimoireRef } from './types.js';
 import type { EdnNode, EdnMap } from './edn-parser.js';
 import { parse } from './edn-parser.js';
 import type { SpecReader } from './spec-reader.js';
+import { parsePrelude } from './prelude.js';
+import type { Prelude } from './prelude.js';
 
 export type SymbolIndex = {
   readonly symbols: ReadonlyMap<string, SymbolRecord>;
   readonly grimoires: ReadonlyMap<string, GrimoireRef>;
+  /** The expression prelude from `index.edn` `:prelude`; absent for specs that predate it. */
+  readonly prelude?: Prelude;
 };
 
 export type SearchOptions = {
@@ -90,7 +94,8 @@ export const buildIndex = (reader: SpecReader): Result<SymbolIndex, string> => {
   if (!isSome(root) || root.value.type !== 'map') return err('index.edn root must be a map');
   const grimoires = parseGrimoires(root.value);
   const symbols = parseSymbols(root.value, grimoires);
-  return ok({ symbols, grimoires });
+  const preludeNode = root.value.entries.get('prelude');
+  return ok({ symbols, grimoires, ...(preludeNode !== undefined ? { prelude: parsePrelude(preludeNode) } : {}) });
 };
 
 export const lookup = (index: SymbolIndex, symbolName: string): Option<SymbolRecord> =>
@@ -121,13 +126,21 @@ export const listAll = (
       .map((r) => ({ grimoire: r.grimoire, symbol: r.symbol, synopsis: r.synopsis })),
   );
 
+const isUnitShaped = (elements: ReadonlyArray<EdnNode>): boolean => {
+  const [head, magnitude, ...rest] = elements;
+  return head?.type === 'symbol' && magnitude?.type === 'number' && rest.length === 0 && !head.value.includes('/');
+};
+
 const visitSymbolNode = (node: EdnNode, isHead: boolean): ReadonlyArray<string> => {
   if (node.type === 'symbol') {
     // Collect head-position symbols (form type names) and namespaced symbols (spec refs like w/prototype)
     return isHead || node.value.includes('/') ? [node.value] : [];
   }
   if (node.type === 'list') {
-    return node.elements.flatMap((el, i) => visitSymbolNode(el, i === 0));
+    // Only a parenthesised form has a head; a vector or set is data. A unit form such as
+    // (eur 10000) — one symbol and one number — names a unit, not a construct.
+    const hasHead = node.delimiter === undefined && !isUnitShaped(node.elements);
+    return node.elements.flatMap((el, i) => visitSymbolNode(el, i === 0 && hasHead));
   }
   if (node.type === 'map') {
     return Array.from(node.entries.values()).flatMap((v) => visitSymbolNode(v, false));
