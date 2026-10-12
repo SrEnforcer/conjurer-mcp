@@ -14,6 +14,7 @@ import { registerProjectTools } from './tools/project.js';
 import { registerLensTools } from './tools/lenses.js';
 import { registerDiffTools } from './tools/diff.js';
 import { registerForesightTools } from './tools/foresight.js';
+import { registerExpressionTools } from './tools/expression.js';
 import { registerGrimoireResources } from './resources.js';
 
 const emptyIndex: SymbolIndex = { symbols: intoMap([]), grimoires: intoMap([]) };
@@ -47,6 +48,7 @@ export const main = async (): Promise<void> => {
   registerRetrievalTools(server, { index, reader });
   registerParseTools(server);
   registerValidateTools(server, { index });
+  registerExpressionTools(server, { index });
   registerProjectTools(server);
   registerLensTools(server);
   registerDiffTools(server);

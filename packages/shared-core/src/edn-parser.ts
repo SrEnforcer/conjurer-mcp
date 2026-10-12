@@ -4,7 +4,7 @@ import type { Result } from '@tsfpp/prelude';
 export type TokenType =
   | 'lparen' | 'rparen'
   | 'lbracket' | 'rbracket'
-  | 'lbrace' | 'rbrace'
+  | 'lbrace' | 'rbrace' | 'lset'
   | 'symbol' | 'keyword' | 'string' | 'number' | 'boolean' | 'nil' | 'eof';
 
 export type Token = {
@@ -21,9 +21,13 @@ export type ParseError = {
   readonly column: number;
 };
 
+/** Delimiter an EdnList was written with: `( )`, `[ ]` or `#{ }`. */
+export type EdnDelim = 'paren' | 'bracket' | 'set';
+
 export type EdnList = {
   readonly type: 'list';
   readonly elements: ReadonlyArray<EdnNode>;
+  readonly delim?: EdnDelim;
   readonly line: number;
   readonly column: number;
 };
@@ -100,6 +104,10 @@ const lexNum = (s: LS): Result<LR, ParseError> => {
     curC(t) >= '0' && curC(t) <= '9' ? digits(advL(t), a + curC(t)) : { token: { type: 'number', value: a, line: s.line, column: col }, next: t };
   const neg = curC(s) === '-';
   const w = digits(neg ? advL(s) : s, neg ? '-' : '');
+  if (curC(w.next) === '/' && peekC(w.next) >= '0' && peekC(w.next) <= '9') {
+    const d = digits(advL(w.next), w.token.value + '/');
+    return ok({ token: { type: 'number', value: d.token.value, line: s.line, column: col }, next: d.next });
+  }
   if (curC(w.next) === '.' && peekC(w.next) >= '0' && peekC(w.next) <= '9') {
     const f = digits(advL(w.next), w.token.value + '.');
     return ok({ token: { type: 'number', value: f.token.value, line: s.line, column: col }, next: f.next });
@@ -128,6 +136,7 @@ const lexNext = (ns: LS): Result<LR, ParseError> => {
   const c = curC(ns);
   const btype = BRACKETS[c];
   if (btype !== undefined) return ok({ token: { type: btype, value: c, line: ns.line, column: ns.column }, next: advL(ns) });
+  if (c === '#' && peekC(ns) === '{') return ok({ token: { type: 'lset', value: '#{', line: ns.line, column: ns.column }, next: advL(advL(ns)) });
   if (c === ':') return lexKw(ns);
   if (c === '"') return lexStr(ns);
   if (isNumOrNeg(ns, c)) return lexNum(ns);
@@ -167,7 +176,7 @@ const collectEl = (s: PS, acc: ReadonlyArray<EdnNode>, ctx: ElCtx): Result<{ rea
   return collectEl(r.value.next, [...acc, r.value.value], ctx);
 };
 
-type BrCtx = { readonly open: string; readonly close: string };
+type BrCtx = { readonly open: string; readonly close: string; readonly delim: EdnDelim };
 const parseSeq = (s: PS, br: BrCtx, recur: RFn): PR<EdnList> => {
   const t = pCur(s);
   const o = pEat(s, br.open, `Expected ${br.open}`);
@@ -176,7 +185,7 @@ const parseSeq = (s: PS, br: BrCtx, recur: RFn): PR<EdnList> => {
   if (isErr(el)) return err(el.error);
   const c = pEat(el.value.next, br.close, `Expected ${br.close}`);
   if (isErr(c)) return err(c.error);
-  return ok({ value: { type: 'list', elements: el.value.elems, line: t.line, column: t.column }, next: c.value.next });
+  return ok({ value: { type: 'list', elements: el.value.elems, delim: br.delim, line: t.line, column: t.column }, next: c.value.next });
 };
 
 const collectEnt = (
@@ -206,18 +215,30 @@ const parseM = (s: PS, recur: RFn): PR<EdnMap> => {
   return ok({ value: { type: 'map', entries: intoMap(en.value.entries), line: t.line, column: t.column }, next: c.value.next });
 };
 
+/** Number token to value; a ratio such as `1/5` becomes its quotient. */
+const numValue = (text: string): number => {
+  const [num, den] = text.split('/');
+  return den === undefined ? Number(num) : Number(num) / Number(den);
+};
+
 const unquote = (s: string): string =>
   s.slice(1, -1).replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
 
+const SEQS: Readonly<Partial<Record<TokenType, BrCtx>>> = {
+  lparen:   { open: 'lparen',   close: 'rparen',   delim: 'paren' },
+  lbracket: { open: 'lbracket', close: 'rbracket', delim: 'bracket' },
+  lset:     { open: 'lset',     close: 'rbrace',   delim: 'set' },
+};
+
 const parseExpr = (s: PS): PR<EdnNode> => {
   const t = pCur(s);
-  if (t.type === 'lparen')   return parseSeq(s, { open: 'lparen',   close: 'rparen'  }, parseExpr);
-  if (t.type === 'lbracket') return parseSeq(s, { open: 'lbracket', close: 'rbracket' }, parseExpr);
+  const seq = SEQS[t.type];
+  if (seq !== undefined)     return parseSeq(s, seq, parseExpr);
   if (t.type === 'lbrace')   return parseM(s, parseExpr);
   if (t.type === 'keyword')  return ok({ value: { type: 'keyword', value: t.value, line: t.line, column: t.column }, next: pAdv(s) });
   if (t.type === 'symbol')   return ok({ value: { type: 'symbol',  value: t.value, line: t.line, column: t.column }, next: pAdv(s) });
   if (t.type === 'string')   return ok({ value: { type: 'string',  value: unquote(t.value), line: t.line, column: t.column }, next: pAdv(s) });
-  if (t.type === 'number')   return ok({ value: { type: 'number',  value: Number(t.value), line: t.line, column: t.column }, next: pAdv(s) });
+  if (t.type === 'number')   return ok({ value: { type: 'number',  value: numValue(t.value), line: t.line, column: t.column }, next: pAdv(s) });
   if (t.type === 'boolean')  return ok({ value: { type: 'boolean', value: t.value === 'true', line: t.line, column: t.column }, next: pAdv(s) });
   if (t.type === 'nil')      return ok({ value: { type: 'nil', line: t.line, column: t.column }, next: pAdv(s) });
   return err(mkErr(`Unexpected token: ${t.type}`, t.line, t.column));

@@ -84,6 +84,9 @@ ceilings to design toward, not budgets to fill.
 | `cnj-model.ts` | Shape a parsed .cnj AST into the typed project model (charter, assets, targets, candidates, hoists). | `CnjDocument`, `Charter`, `CnjCandidateForm`, `CnjHoist`, `toCnjModel` |
 | `validation.ts` | Pure rule functions over a CnjDocument → violation list. `:authored` and `:recovered` modes. No I/O. | `validateCnj`, `ValidationRule`, `Violation`, `ValidationMode` |
 | `preflight-resolver.ts` | Deterministic folder preflight: discover entry .cnj, resolve in-folder + external refs, report unresolved as diagnostics. | `runMaterialisePreflight`, `MaterialisePreflightReport` |
+| `prelude.ts` | Read `:prelude` from index.edn; classify an expression as prelude or semantic. Pure. | `Prelude`, `parsePrelude`, `classifyExpression` |
+| `prelude-eval.ts` | Evaluate prelude expressions against EDN bindings; report semantic heads, never guess. | `evaluateExpression`, `printValue`, `Value` |
+| `prelude-checks.ts` | `validate_cnj` warnings that follow from the prelude (incantation `:expands-to`, structural `ensure`). | `checkPreludeUsage` |
 | `workspace-state.ts` | Build cross-file target DAG from `:from` fields + charter `:references` discovery; topological sort; SHA-256 context-key over transitive file contents. Pure — no mutable state. | `buildWorkspaceSnapshot`, `topoOrder`, `computeContextKey`, `WorkspaceSnapshot` |
 | `types.ts` | Shared boundary types. | `SymbolRecord`, `GrimoireRef`, `ToolResult` |
 
@@ -95,6 +98,7 @@ ceilings to design toward, not budgets to fill.
 | `tools/retrieval.ts` | Register/handle the eight Cluster-A tools (`lookup_symbol`, `search_symbols`, `get_grimoire_section`, `get_examples`, `list_grimoire`, `check_symbol_coverage`, `trace_symbol`, `explain_form`); delegate to symbol-index, spec-reader, workspace-state, cnj-model. | `registerRetrievalTools` |
 | `tools/parse.ts` | Register/handle `parse_cnj`, `read_charter`. | `registerParseTools` |
 | `tools/validate.ts` | Register/handle `validate_cnj`. | `registerValidateTools` |
+| `tools/expression.ts` | Register/handle `check_expression`; delegate to prelude and prelude-eval. | `registerExpressionTools` |
 | `tools/diff.ts` | Register/handle `diff_cnj` (charter/targets/assets semantic diff) and `diff_candidates` (candidate backlog diff: added, removed, hoisted, status/score changes). Pure comparison over `CnjDocument` values; no workspace state or spec lookup. | `registerDiffTools` |
 | `tools/project.ts` | Register/handle the four core Cluster-D tools (`resolve`, `evaluate`, `project_lint_topology`, `materialise_preflight`); delegate to workspace-state and preflight-resolver. Holds the process-local evaluate cache. | `registerProjectTools` |
 | `tools/lenses.ts` | Register/handle workspace lens tools (`lens_dependency_graph`, `lens_open_questions`, `workspace_summary`); delegate to workspace-state and validation. | `registerLensTools` |
@@ -114,7 +118,9 @@ explanation of one named form including all referenced symbols).
 **Cluster B — parsing & diff (3):** `parse_cnj`, `read_charter`, `diff_cnj`
 (structured semantic diff between two .cnj snapshots: goals, decisions, targets,
 assets).
-**Cluster C — validation (1):** `validate_cnj` (with `:mode :authored | :recovered`).
+**Cluster C — validation:** `validate_cnj` (with `:mode :authored | :recovered`),
+`lint_disk_consistency`, and `check_expression` (classify an expression against
+the spec prelude, core Part V, and evaluate it when it is prelude).
 **Cluster D — project-aware planning (7):** `resolve` (dependency-aware order +
 unresolved diagnostics), `evaluate` (fingerprint-cached plan evaluation, reports
 stale rather than silently reusing), `project_lint_topology` (cross-file

@@ -2,6 +2,7 @@ import { isDefined } from '@tsfpp/prelude';
 import type { EdnNode } from './edn-parser.js';
 import type { CnjDocument, CnjDomainForm } from './cnj-model.js';
 import type { SymbolIndex } from './symbol-index.js';
+import { checkPreludeUsage } from './prelude-checks.js';
 
 export type ValidationMode = 'authored' | 'recovered';
 
@@ -14,6 +15,8 @@ export type ValidationOptions = {
   readonly index?: SymbolIndex;
   readonly symbolRefs?: ReadonlyArray<string>;
   readonly referencesStatus?: ReadonlyArray<ReferenceStatus>;
+  /** The parsed document; with an index that carries a prelude, enables the prelude checks. */
+  readonly ast?: ReadonlyArray<EdnNode>;
 };
 
 export type ValidationRule = {
@@ -190,6 +193,14 @@ export const VALIDATION_RULE_DESCRIPTIONS: Readonly<Record<string, ReadonlyArray
   assume: [':condition must be a non-empty string'],
   handover: [':to must reference a known target in the workspace'],
   ritual: ['steps must form an ordered list'],
+  incantation: [':expands-to uses only prelude forms, its parameters and registered spells (incantation-expands-to-prelude)'],
+  ensure: ['structural predicates outside the prelude are honoured at the :llm layer (ensure-structural-prelude)'],
+};
+
+const preludeUsage = (options: ValidationOptions | undefined): ReadonlyArray<Violation> => {
+  const prelude = options?.index?.prelude;
+  const ast = options?.ast;
+  return isDefined(prelude) && isDefined(ast) ? checkPreludeUsage(ast, prelude) : [];
 };
 
 export const validateCnj = (
@@ -212,7 +223,8 @@ export const validateCnj = (
       ? checkReferences(options.referencesStatus)
       : [];
   const conventionViolations: ReadonlyArray<Violation> = lintConventions(doc);
-  const violations = [...coreViolations, ...symbolViolations, ...referenceViolations, ...conventionViolations];
+  const preludeViolations = preludeUsage(options);
+  const violations = [...coreViolations, ...symbolViolations, ...referenceViolations, ...conventionViolations, ...preludeViolations];
   return {
     valid: violations.every((viol) => viol.severity !== 'error'),
     mode,

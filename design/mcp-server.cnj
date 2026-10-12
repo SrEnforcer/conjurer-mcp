@@ -3,13 +3,13 @@
 ;;; References the project anchor for charter, assets, and assumptions.
 ;;; This file holds: the full tool contracts (Section V — domain work) and the
 ;;; module decomposition for both @conjurer/core and the server (Section VI).
-;;; 22 tools across five clusters (A retrieval, B parsing/diff, C validation,
+;;; Tools across five clusters (A retrieval, B parsing/diff, C validation,
 ;;; D project-aware planning, F foresight) plus conjurer:// grimoire resources.
 
 (charter "Conjurer MCP Server"
   :version  "0.2.0"
   :created  "2026-06-05"
-  :updated  "2026-06-10"
+  :updated  "2026-10-12"
   :domain   "A deterministic stdio MCP server exposing retrieval, parsing, and
              validation tools over the Conjurer specification, built on a shared
              TypeScript core."
@@ -290,7 +290,26 @@
                     defaults. Returns consistent bool, issue_count, one list per check, totals.
                 CnjReassessment and CnjHoist model types were prerequisites — both already landed
                 (2026-06-10 model decisions). Backlog has 12 candidates, satisfying the ≥8 condition.
-                Implemented in tools/foresight.ts alongside list_candidates and lens_hoist_readiness."}]
+                Implemented in tools/foresight.ts alongside list_candidates and lens_hoist_readiness."}
+    {:id :prelude-evaluator
+     :date "2026-10-12"
+     :decision "The spec (catalogue 2.0.0, core Part V) defines a prelude: the closed
+                set of expression forms a deterministic processor may evaluate; every
+                other head is a semantic function for the model. The core gains three
+                modules. prelude.ts reads :prelude from index.edn (never embedded; a
+                catalogue without it yields no prelude and the dependent checks are
+                skipped) and classifies an expression: prelude or semantic heads, and
+                its free variables. prelude-eval.ts evaluates literals, unit forms,
+                predicates (= not= < <= > >= in? and or not, with and/or short-circuit)
+                and keyword access against EDN bindings; units compare only within one
+                unit. Type forms and expansion forms other than str are classified,
+                not evaluated: expanding over a domain-model binding needs a binding
+                shape the spec does not define. prelude-checks.ts adds two validate_cnj
+                warnings: incantation-expands-to-prelude and ensure-structural-prelude.
+                Warnings, not errors, because spells registered in another file or a
+                practitioner grimoire are not visible from one document. The EDN parser
+                gains sets (#{...}), ratios (1/5) and an EdnList :delim so calls are
+                told apart from vectors and sets. New Cluster-C tool check_expression."}]
   :open []
   :decided [
     "conjurer://grimoire/<name> MCP resources: yes (2026-06-09 decision above)."]
@@ -511,6 +530,10 @@
                 "decisions log is append-only-shaped (each entry has :date :decision)"
                 "referenced symbols exist in index.edn"
                 "every :references target resolves to a readable file"
+                "an incantation's :expands-to uses only prelude forms, its parameters
+                 and spells registered in the file (warning)"
+                "a structural ensure predicate outside the prelude is flagged as
+                 honoured at the :llm layer (warning)"
                 "intent topology (on forms that carry :requires/:prefers/:deferred/:manifest):
                  (a) every :requires item appears in :manifest,
                  (b) no :deferred item appears in :manifest,
@@ -529,6 +552,30 @@
                 tool-less bootstrap."
   :token-note  "The agent inherits the spec's rules as a service instead of
                 carrying them in context.")
+
+(spell check-expression
+  :tool-name   "check_expression"
+  :purpose     "Classify one expression against the spec's prelude and evaluate it
+                when it is prelude — where determinism ends, made a service"
+  :accepts     {:expression    "string — one EDN form, e.g. \"(<= daily-limit (eur 10000))\""
+                :bindings      "optional string — EDN map of free variables,
+                                e.g. \"{daily-limit (eur 5000)}\""
+                :allowed_heads "optional [string] — heads that count as deterministic
+                                here: an incantation's parameters and registered spells"}
+  :returns     {:format :structured
+                :shape  {:prelude_available :boolean
+                         :deterministic     :boolean
+                         :semantic_heads    [{:head :string :line :number :column :number}]
+                         :free_variables    [:string]
+                         :evaluation        {:status  ":value | :semantic | :unbound |
+                                                       :not-evaluated | :type-error"
+                                             :value   "optional EDN string"
+                                             :message "optional string"}}}
+  :backed-by   [:prelude :prelude-eval :edn-parser]
+  :determinism :pure
+  :token-note  "Answers 'can a tool check this, or must the model?' without the agent
+                carrying the prelude in context. Never guesses at a semantic head;
+                reports prelude_available false for a catalogue without :prelude.")
 
 (spell lint-disk-consistency
   :tool-name   "lint_disk_consistency"
@@ -818,7 +865,7 @@
      :responsibility "Tokenise and parse EDN / s-expressions into a typed AST.
                       Reused for index.edn and .cnj. The robust parser from the
                       prior project, ported clean."
-     :exports ["parse" "tokenize" "EdnNode"]
+     :exports ["parse" "tokenize" "EdnNode" "EdnDelim"]
      :est-lines 280}
     {:module "spec-reader.ts"
      :responsibility "Locate the spec (path/symlink resolution), lazy-read grimoire
@@ -865,7 +912,22 @@
      :responsibility "Shared type definitions exported at the package boundary
                       (SymbolRecord, GrimoireRef, ToolResult shapes)."
      :exports ["SymbolRecord" "GrimoireRef" "ToolResult"]
-     :est-lines 140}])
+     :est-lines 140}
+    {:module "prelude.ts"
+     :responsibility "Read :prelude from index.edn and classify an expression:
+                      prelude forms, semantic heads, free variables. Pure."
+     :exports ["Prelude" "parsePrelude" "classifyExpression" "Classification"]
+     :est-lines 180}
+    {:module "prelude-eval.ts"
+     :responsibility "Evaluate prelude expressions against EDN bindings; report a
+                      semantic head, an unbound variable or a type error, never guess."
+     :exports ["evaluateExpression" "printValue" "Value" "EvalError" "Bindings"]
+     :est-lines 260}
+    {:module "prelude-checks.ts"
+     :responsibility "validate_cnj rules that follow from the prelude: incantation
+                      :expands-to and structural ensure predicates."
+     :exports ["checkPreludeUsage"]
+     :est-lines 100}])
 
 ;;; The server package — thin MCP wiring over the core. One module per concern.
 
@@ -901,6 +963,11 @@
                       a configurable root using recursive readdirSync to find declared module files."
      :exports ["registerValidateTools" "handleValidate" "handleLintDiskConsistency"]
      :est-lines 145}
+    {:module "tools/expression.ts"
+     :responsibility "Register and handle check_expression; delegate to prelude and
+                      prelude-eval. Parses the expression and bindings as EDN."
+     :exports ["registerExpressionTools" "handleCheckExpression"]
+     :est-lines 100}
     {:module "tools/diff.ts"
      :responsibility "Register and handle diff_cnj (charter/targets/assets diff) and
                       diff_candidates (semantic backlog diff: added, removed, hoisted,

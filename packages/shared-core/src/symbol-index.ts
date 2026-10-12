@@ -6,10 +6,14 @@ import type { SymbolRecord, GrimoireRef } from './types.js';
 import type { EdnNode, EdnMap } from './edn-parser.js';
 import { parse } from './edn-parser.js';
 import type { SpecReader } from './spec-reader.js';
+import type { Prelude } from './prelude.js';
+import { parsePrelude } from './prelude.js';
 
 export type SymbolIndex = {
   readonly symbols: ReadonlyMap<string, SymbolRecord>;
   readonly grimoires: ReadonlyMap<string, GrimoireRef>;
+  /** The spec's prelude; absent when index.edn declares none (catalogue before 2.0.0). */
+  readonly prelude?: Prelude;
 };
 
 export type SearchOptions = {
@@ -90,7 +94,8 @@ export const buildIndex = (reader: SpecReader): Result<SymbolIndex, string> => {
   if (!isSome(root) || root.value.type !== 'map') return err('index.edn root must be a map');
   const grimoires = parseGrimoires(root.value);
   const symbols = parseSymbols(root.value, grimoires);
-  return ok({ symbols, grimoires });
+  const prelude = parsePrelude(root.value);
+  return ok(prelude === undefined ? { symbols, grimoires } : { symbols, grimoires, prelude });
 };
 
 export const lookup = (index: SymbolIndex, symbolName: string): Option<SymbolRecord> =>

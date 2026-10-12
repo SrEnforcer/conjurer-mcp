@@ -12,6 +12,7 @@ export type {
   EdnNumber,
   EdnBoolean,
   EdnNil,
+  EdnDelim,
 } from './edn-parser.js';
 export { parse, tokenize } from './edn-parser.js';
 export type { SpecReader } from './spec-reader.js';
@@ -40,6 +41,11 @@ export type {
 } from './validation.js';
 export { validateCnj, checkSymbolUsage, checkReferences, lintConventions, VALIDATION_RULE_DESCRIPTIONS } from './validation.js';
 export { buildIndex } from './symbol-index.js';
+export type { Prelude, HeadKind, SemanticHead, Classification, ClassifyOptions } from './prelude.js';
+export { parsePrelude, classifyExpression } from './prelude.js';
+export type { Value, EvalErrorKind, EvalError, Bindings } from './prelude-eval.js';
+export { evaluateExpression, printValue } from './prelude-eval.js';
+export { checkPreludeUsage } from './prelude-checks.js';
 export type {
   ResolvedRef,
   UnresolvedRef,

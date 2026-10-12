@@ -42,7 +42,7 @@ export const handleValidate = (
     doc.value,
     parseMode(mode),
     isDefined(index) && isDefined(symbolRefs)
-      ? { index, symbolRefs, referencesStatus }
+      ? { index, symbolRefs, referencesStatus, ast: parsed.value }
       : { referencesStatus },
   );
   const effectiveValid = strict === true ? report.violations.length === 0 : report.valid;
