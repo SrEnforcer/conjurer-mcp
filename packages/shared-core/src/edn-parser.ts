@@ -68,7 +68,7 @@ const skipWS = (s: LS): LS => {
 };
 
 const isSymS = (c: string): boolean => /^[a-zA-Z_\-+*/?!<>='~&]$/.test(c);
-const isSymC = (c: string): boolean => isSymS(c) || (c >= '0' && c <= '9');
+const isSymC = (c: string): boolean => isSymS(c) || c === '.' || (c >= '0' && c <= '9');
 const isNumS = (s: LS): boolean => {
   const c = curC(s);
   return (c >= '0' && c <= '9') || (c === '-' && peekC(s) >= '0' && peekC(s) <= '9');
