@@ -9,16 +9,18 @@ import { resolve as resolvePath } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { buildWorkspaceSnapshot, effectiveScores } from '@conjurer/core';
-import type { CnjCandidateForm, CnjHoist, WorkspaceSnapshot } from '@conjurer/core';
+import {
+  buildWorkspaceSnapshot, effectiveScores, computeForesightHealth, candidateTotal, daysBetween, todayISO,
+  ACTIVE_CANDIDATE_STATUSES,
+} from '@conjurer/core';
+import type { CnjCandidateForm, CnjHoist, WorkspaceSnapshot, ForesightHealthOptions } from '@conjurer/core';
 import { isErr, isDefined } from '@tsfpp/prelude';
 
 type ToolContent = ReadonlyArray<{ readonly type: 'text'; readonly text: string }>;
 
 const toContent = (text: string): ToolContent => [{ type: 'text', text }];
 
-const totalScore = (c: CnjCandidateForm): number =>
-  Array.from(effectiveScores(c).values()).reduce((a, b) => a + b, 0);
+const totalScore = candidateTotal;
 
 const readSnapshot = (file: string): WorkspaceSnapshot | string => {
   const abs = resolvePath(file);
@@ -54,16 +56,7 @@ type ClusterView = {
 
 const HIDDEN_STATUSES = new Set<string>(['hoisted', 'abandoned']);
 
-const ACTIVE_STATUSES = new Set<string>(['proposed', 'planned']);
-
-const todayISO = (): string => new Date().toISOString().slice(0, 10);
-
-const daysBetween = (from: string, to: string): number => {
-  const a = new Date(from).getTime();
-  const b = new Date(to).getTime();
-  if (isNaN(a) || isNaN(b)) return 0;
-  return Math.max(0, Math.floor((b - a) / (1000 * 60 * 60 * 24)));
-};
+const ACTIVE_STATUSES = new Set<string>(ACTIVE_CANDIDATE_STATUSES);
 
 const filterCandidates = (
   candidates: ReadonlyArray<CnjCandidateForm>,
@@ -189,13 +182,13 @@ type HoistReadinessEntry = {
  *
  * @param file - Entry .cnj path.
  * @param minScore - Minimum total score for inclusion; default 28.
+ * @param today - Reference date `YYYY-MM-DD`; defaults to the current date.
  * @returns Tool text content payload.
  */
-export const handleHoistReadiness = (file: string, minScore: number = 28): ToolContent => {
+export const handleHoistReadiness = (file: string, minScore: number = 28, today: string = todayISO()): ToolContent => {
   const snapshot = readSnapshot(file);
   if (typeof snapshot === 'string') return toContent(snapshot);
 
-  const today = todayISO();
   const active = allCandidates(snapshot).filter((candidate) => ACTIVE_STATUSES.has(candidate.status));
   const above = active.filter((c) => totalScore(c) >= minScore);
   const ranked = [...above].sort((a, b) => totalScore(b) - totalScore(a));
@@ -212,148 +205,10 @@ export const handleHoistReadiness = (file: string, minScore: number = 28): ToolC
   }, null, 2));
 };
 
-type StaleEntry = { readonly id: string; readonly label: string; readonly days_since_added: number; readonly has_reassessment: boolean };
-type ThinEntry = { readonly id: string; readonly label: string; readonly rationale_length: number };
-type OrphanEntry = { readonly of: string; readonly date: string; readonly into: string };
-type HighScoreEntry = { readonly id: string; readonly label: string; readonly total_score: number };
-type ForesightHealthOptions = {
-  readonly staleDays: number;
-  readonly minRationaleLength: number;
-  readonly highScoreThreshold: number;
-};
-
-type ForesightIssueSets = {
-  readonly candidates: ReadonlyArray<CnjCandidateForm>;
-  readonly hoists: ReadonlyArray<CnjHoist>;
-  readonly staleCandidates: ReadonlyArray<StaleEntry>;
-  readonly thinRationale: ReadonlyArray<ThinEntry>;
-  readonly orphanedHoists: ReadonlyArray<OrphanEntry>;
-  readonly highScoreNoConditions: ReadonlyArray<HighScoreEntry>;
-};
-
-const defaultForesightHealthOptions: ForesightHealthOptions = {
+const defaultForesightHealthOptions: Omit<ForesightHealthOptions, 'today'> = {
   staleDays: 30,
   minRationaleLength: 20,
   highScoreThreshold: 30,
-};
-
-const staleEntries = (
-  candidates: ReadonlyArray<CnjCandidateForm>,
-  staleDays: number,
-  today: string,
-): ReadonlyArray<StaleEntry> =>
-  candidates
-    .filter((candidate) => candidate.history.length === 0 && daysBetween(candidate.added, today) > staleDays)
-    .map((candidate) => ({
-      id: candidate.id,
-      label: candidate.label,
-      days_since_added: daysBetween(candidate.added, today),
-      has_reassessment: false,
-    }));
-
-const thinRationaleEntries = (
-  candidates: ReadonlyArray<CnjCandidateForm>,
-  minRationaleLength: number,
-): ReadonlyArray<ThinEntry> =>
-  candidates
-    .filter((candidate) => candidate.rationale.length < minRationaleLength)
-    .map((candidate) => ({
-      id: candidate.id,
-      label: candidate.label,
-      rationale_length: candidate.rationale.length,
-    }));
-
-const highScoreNoConditionEntries = (
-  candidates: ReadonlyArray<CnjCandidateForm>,
-  highScoreThreshold: number,
-): ReadonlyArray<HighScoreEntry> =>
-  candidates
-    .filter((candidate) => totalScore(candidate) >= highScoreThreshold && candidate.conditions.length === 0)
-    .map((candidate) => ({ id: candidate.id, label: candidate.label, total_score: totalScore(candidate) }));
-
-const lifecycleDistribution = (candidates: ReadonlyArray<CnjCandidateForm>): Record<string, number> =>
-  candidates.reduce<Record<string, number>>(
-    (acc, candidate) => ({ ...acc, [candidate.status]: (acc[candidate.status] ?? 0) + 1 }),
-    {},
-  );
-
-const orphanedHoistEntries = (
-  hoists: ReadonlyArray<CnjHoist>,
-  candidates: ReadonlyArray<CnjCandidateForm>,
-): ReadonlyArray<OrphanEntry> => {
-  // DEVIATION(1.9): Constructing small local Set/Date objects inside pure diagnostic or diff helpers where no prelude equivalent exists and no mutable state escapes.
-  const candidateIds = new Set(candidates.map((candidate) => candidate.id));
-  return hoists
-    .filter((hoist) => !candidateIds.has(hoist.of))
-    .map((hoist) => ({ of: hoist.of, date: hoist.date, into: hoist.into }));
-};
-
-const issueCountOf = (
-  issues: {
-    readonly staleCandidates: ReadonlyArray<StaleEntry>;
-    readonly thinRationale: ReadonlyArray<ThinEntry>;
-    readonly orphanedHoists: ReadonlyArray<OrphanEntry>;
-    readonly highScoreNoConditions: ReadonlyArray<HighScoreEntry>;
-  },
-): number =>
-  issues.staleCandidates.length +
-  issues.thinRationale.length +
-  issues.orphanedHoists.length +
-  issues.highScoreNoConditions.length;
-
-const collectForesightIssues = (
-  snapshot: WorkspaceSnapshot,
-  config: ForesightHealthOptions,
-): ForesightIssueSets => {
-  const today = todayISO();
-  const candidates = allCandidates(snapshot);
-  const hoists = allHoists(snapshot);
-  const activeCandidates = candidates.filter((candidate) => ACTIVE_STATUSES.has(candidate.status));
-  return {
-    candidates,
-    hoists,
-    staleCandidates: staleEntries(activeCandidates, config.staleDays, today),
-    thinRationale: thinRationaleEntries(activeCandidates, config.minRationaleLength),
-    orphanedHoists: orphanedHoistEntries(hoists, candidates),
-    highScoreNoConditions: highScoreNoConditionEntries(activeCandidates, config.highScoreThreshold),
-  };
-};
-
-const buildForesightHealthPayload = (
-  snapshot: WorkspaceSnapshot,
-  config: ForesightHealthOptions,
-): {
-  readonly consistent: boolean;
-  readonly issue_count: number;
-  readonly stale_candidates: ReadonlyArray<StaleEntry>;
-  readonly thin_rationale: ReadonlyArray<ThinEntry>;
-  readonly orphaned_hoists: ReadonlyArray<OrphanEntry>;
-  readonly high_score_no_conditions: ReadonlyArray<HighScoreEntry>;
-  readonly lifecycle_distribution: Record<string, number>;
-  readonly total_candidates_scanned: number;
-  readonly total_hoists_scanned: number;
-  readonly total_files_scanned: number;
-} => {
-  const issues = collectForesightIssues(snapshot, config);
-  const issueCount = issueCountOf({
-    staleCandidates: issues.staleCandidates,
-    thinRationale: issues.thinRationale,
-    orphanedHoists: issues.orphanedHoists,
-    highScoreNoConditions: issues.highScoreNoConditions,
-  });
-
-  return {
-    consistent: issueCount === 0,
-    issue_count: issueCount,
-    stale_candidates: issues.staleCandidates,
-    thin_rationale: issues.thinRationale,
-    orphaned_hoists: issues.orphanedHoists,
-    high_score_no_conditions: issues.highScoreNoConditions,
-    lifecycle_distribution: lifecycleDistribution(issues.candidates),
-    total_candidates_scanned: issues.candidates.length,
-    total_hoists_scanned: issues.hoists.length,
-    total_files_scanned: snapshot.files.size,
-  };
 };
 
 const toForesightHealthOptions = (
@@ -371,9 +226,7 @@ const toForesightHealthOptions = (
  * orphaned hoists, high-score/no-conditions gaps, lifecycle distribution.
  *
  * @param file - Entry .cnj path; charter :references chains determine scope.
- * @param staleDays - Days without reassessment before flagging as stale; default 30.
- * @param minRationaleLength - Minimum rationale character length; default 20.
- * @param highScoreThreshold - Total score above which empty :conditions is flagged; default 30.
+ * @param options - Thresholds (stale days 30, rationale length 20, high score 30) and `today`.
  * @returns Tool text content payload.
  */
 export const handleForesightHealth = (
@@ -383,8 +236,17 @@ export const handleForesightHealth = (
   const snapshot = readSnapshot(file);
   if (typeof snapshot === 'string') return toContent(snapshot);
 
-  const config = { ...defaultForesightHealthOptions, ...options };
-  return toContent(JSON.stringify(buildForesightHealthPayload(snapshot, config), null, 2));
+  const config: ForesightHealthOptions = { ...defaultForesightHealthOptions, today: todayISO(), ...options };
+  const candidates = allCandidates(snapshot);
+  const hoists = allHoists(snapshot);
+  const report = computeForesightHealth(candidates, hoists, config);
+  return toContent(JSON.stringify({
+    consistent: report.issue_count === 0,
+    ...report,
+    total_candidates_scanned: candidates.length,
+    total_hoists_scanned: hoists.length,
+    total_files_scanned: snapshot.files.size,
+  }, null, 2));
 };
 
 const registerHoistReadinessTool = (server: McpServer): void => {

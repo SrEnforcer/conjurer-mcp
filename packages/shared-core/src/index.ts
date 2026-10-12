@@ -51,3 +51,7 @@ export type { ParsedFileEntry, WorkspaceSnapshot, UnresolvedDependency } from '.
 export { buildWorkspaceSnapshot, topoOrder, computeContextKey } from './workspace-state.js';
 export type { ReferenceKind, FormReference, ReferenceSite } from './references.js';
 export { parseReference, bareName, declaredNames, bindingNames, referenceSites } from './references.js';
+export type {
+  ForesightHealthOptions, ForesightHealthReport, StaleCandidate, ThinRationale, OrphanedHoist, HighScoreNoConditions,
+} from './foresight-health.js';
+export { computeForesightHealth, candidateTotal, daysBetween, todayISO, ACTIVE_CANDIDATE_STATUSES } from './foresight-health.js';

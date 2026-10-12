@@ -60,11 +60,18 @@ export type CnjCandidateForm = {
   readonly id: string;
   readonly label: string;
   readonly cluster: string;
+  /**
+   * Current lifecycle status (foresight.md · f/reassess): `hoisted` once an `f/hoist` names the
+   * candidate, otherwise the latest `:status` among its reassessments, otherwise as written.
+   */
   readonly status: string;
+  /** The `:status` written on the candidate itself — where it started; never edited. */
+  readonly authoredStatus: string;
   readonly scores: ReadonlyMap<string, number>;
   readonly rationale: string;
   readonly conditions: ReadonlyArray<string>;
   readonly added: string;
+  /** Reassessments in date order: those inside `:history` and standalone `f/reassess` forms. */
   readonly history: ReadonlyArray<CnjReassessment>;
 };
 
@@ -75,6 +82,8 @@ export type CnjDocument = {
   readonly domainForms: ReadonlyArray<CnjDomainForm>;
   readonly candidates: ReadonlyArray<CnjCandidateForm>;
   readonly hoists: ReadonlyArray<CnjHoist>;
+  /** Standalone `f/reassess` forms (also merged into the history of the candidate they name). */
+  readonly reassessments: ReadonlyArray<CnjReassessment>;
   readonly sourceFile: string;
 };
 
@@ -227,6 +236,7 @@ const parseCandidate = (elems: ReadonlyArray<EdnNode>): CnjCandidateForm | undef
     label: getStr(kv, 'label'),
     cluster: getStr(kv, 'cluster'),
     status: getStr(kv, 'status'),
+    authoredStatus: getStr(kv, 'status'),
     scores: getScores(kv, 'scores'),
     rationale: getStr(kv, 'rationale'),
     conditions: getList(kv, 'conditions'),
@@ -274,6 +284,7 @@ type FormAcc = {
   readonly domainForms: ReadonlyArray<CnjDomainForm>;
   readonly candidates: ReadonlyArray<CnjCandidateForm>;
   readonly hoists: ReadonlyArray<CnjHoist>;
+  readonly reassessments: ReadonlyArray<CnjReassessment>;
 };
 
 const appendIfDefined = <T>(
@@ -297,6 +308,8 @@ const updateAccForForm = (
       return { ...acc, candidates: appendIfDefined(acc.candidates, parseCandidate(elements)) };
     case 'f/hoist':
       return { ...acc, hoists: appendIfDefined(acc.hoists, parseHoist(elements)) };
+    case 'f/reassess':
+      return { ...acc, reassessments: appendIfDefined(acc.reassessments, parseReassess(elements)) };
     default: {
       const domainForm = parseDomainForm(elements);
       return domainForm !== undefined
@@ -329,20 +342,42 @@ const defaultCharter: Charter = {
   audience: intoMap([]),
 };
 
+// Stable sort by date: entries without a date keep their written position after dated ones.
+const byDate = (entries: ReadonlyArray<CnjReassessment>): ReadonlyArray<CnjReassessment> =>
+  entries
+    .map((entry, i) => ({ entry, i }))
+    .sort((a, b) => (a.entry.date === b.entry.date ? a.i - b.i : a.entry.date < b.entry.date ? -1 : 1))
+    .map(({ entry }) => entry);
+
+const withLifecycle = (
+  candidate: CnjCandidateForm,
+  reassessments: ReadonlyArray<CnjReassessment>,
+  hoists: ReadonlyArray<CnjHoist>,
+): CnjCandidateForm => {
+  const history = byDate([...candidate.history, ...reassessments.filter((r) => r.of === candidate.id)]);
+  const latest = history.reduce<CnjReassessment | undefined>((acc, r) => (r.status.length > 0 ? r : acc), undefined);
+  const hoisted = hoists.some((hoist) => hoist.of === candidate.id);
+  const status = hoisted ? 'hoisted' : latest !== undefined ? latest.status : candidate.authoredStatus;
+  return { ...candidate, history, status };
+};
+
 export const toCnjModel = (
   nodes: ReadonlyArray<EdnNode>,
   sourceFile: string,
 ): Result<CnjDocument, string> => {
   if (nodes.length === 0) return err('Empty .cnj file');
-  const initial: FormAcc = { charter: undefined, assets: [], targets: [], domainForms: [], candidates: [], hoists: [] };
+  const initial: FormAcc = {
+    charter: undefined, assets: [], targets: [], domainForms: [], candidates: [], hoists: [], reassessments: [],
+  };
   const result = processForms(nodes, initial, 0);
   return ok({
     charter: result.charter ?? defaultCharter,
     assets: result.assets,
     targets: result.targets,
     domainForms: result.domainForms,
-    candidates: result.candidates,
+    candidates: result.candidates.map((c) => withLifecycle(c, result.reassessments, result.hoists)),
     hoists: result.hoists,
+    reassessments: result.reassessments,
     sourceFile,
   });
 };

@@ -29,6 +29,7 @@ const emptyDoc: CnjDocument = {
   domainForms: [],
   candidates: [],
   hoists: [],
+  reassessments: [],
   sourceFile: 'test.cnj',
 };
 
@@ -48,6 +49,7 @@ const validDoc: CnjDocument = {
   domainForms: [],
   candidates: [],
   hoists: [],
+  reassessments: [],
   sourceFile: 'test.cnj',
 };
 

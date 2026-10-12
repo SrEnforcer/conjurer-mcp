@@ -20,8 +20,13 @@ const makeSnapshot = (...srcs: string[]): WorkspaceSnapshot => ({
     return [path, makeEntry(src, path)];
   })),
   targetEdges: new Map(),
+  bindingDeps: new Map(),
+  unresolvedDeps: [],
   cycleDetected: false,
 });
+
+// Fixtures are dated June 2026; the check runs against a fixed date so results never age.
+const TODAY = '2026-06-15';
 
 const CHARTER = '(charter "P" :version "1.0.0" :goals ["g"])';
 
@@ -79,24 +84,24 @@ const ORPHAN_HOIST = `${CHARTER}
 
 describe('computeHealthIssues — healthy workspace', () => {
   it('returns empty for a workspace with no issues', () => {
-    const issues = computeHealthIssues(makeSnapshot(HEALTHY));
+    const issues = computeHealthIssues(makeSnapshot(HEALTHY), TODAY);
     expect(issues).toHaveLength(0);
   });
 
   it('returns empty for an empty snapshot (no files)', () => {
-    const snapshot: WorkspaceSnapshot = { files: new Map(), targetEdges: new Map(), cycleDetected: false };
-    expect(computeHealthIssues(snapshot)).toHaveLength(0);
+    const snapshot: WorkspaceSnapshot = { files: new Map(), targetEdges: new Map(), bindingDeps: new Map(), unresolvedDeps: [], cycleDetected: false };
+    expect(computeHealthIssues(snapshot, TODAY)).toHaveLength(0);
   });
 });
 
 describe('computeHealthIssues — stale candidates', () => {
   it('flags a candidate with no reassessment added years ago', () => {
-    const issues = computeHealthIssues(makeSnapshot(STALE));
+    const issues = computeHealthIssues(makeSnapshot(STALE), TODAY);
     expect(issues.some((i) => i.kind === 'stale' && i.id === 'stale-one')).toBe(true);
   });
 
   it('does not flag a recently added candidate', () => {
-    const issues = computeHealthIssues(makeSnapshot(HEALTHY));
+    const issues = computeHealthIssues(makeSnapshot(HEALTHY), TODAY);
     expect(issues.some((i) => i.kind === 'stale')).toBe(false);
   });
 
@@ -109,32 +114,32 @@ describe('computeHealthIssues — stale candidates', () => {
   :status :hoisted
   :scores {:feasibility 5 :elegance 5 :containment 5 :value 5}
   :rationale "Long enough rationale that should not cause thin issues.")`;
-    const issues = computeHealthIssues(makeSnapshot(src));
+    const issues = computeHealthIssues(makeSnapshot(src), TODAY);
     expect(issues.some((i) => i.kind === 'stale')).toBe(false);
   });
 });
 
 describe('computeHealthIssues — thin rationale', () => {
   it('flags a candidate whose rationale is below 20 chars', () => {
-    const issues = computeHealthIssues(makeSnapshot(THIN));
+    const issues = computeHealthIssues(makeSnapshot(THIN), TODAY);
     expect(issues.some((i) => i.kind === 'thin_rationale' && i.id === 'thin-one')).toBe(true);
   });
 
   it('includes the rationale length in the detail', () => {
-    const issues = computeHealthIssues(makeSnapshot(THIN));
+    const issues = computeHealthIssues(makeSnapshot(THIN), TODAY);
     const issue = issues.find((i) => i.kind === 'thin_rationale');
     expect(issue?.detail).toMatch(/chars < 20/);
   });
 
   it('does not flag a candidate with adequate rationale', () => {
-    const issues = computeHealthIssues(makeSnapshot(HEALTHY));
+    const issues = computeHealthIssues(makeSnapshot(HEALTHY), TODAY);
     expect(issues.some((i) => i.kind === 'thin_rationale')).toBe(false);
   });
 });
 
 describe('computeHealthIssues — orphaned hoists', () => {
   it('flags a hoist whose :of has no matching candidate', () => {
-    const issues = computeHealthIssues(makeSnapshot(ORPHAN_HOIST));
+    const issues = computeHealthIssues(makeSnapshot(ORPHAN_HOIST), TODAY);
     expect(issues.some((i) => i.kind === 'orphaned_hoist' && i.id === 'nonexistent-candidate')).toBe(true);
   });
 
@@ -152,32 +157,32 @@ describe('computeHealthIssues — orphaned hoists', () => {
   :into "decision/real"
   :outcomes ["shipped"]
   :note "legitimate")`;
-    const issues = computeHealthIssues(makeSnapshot(src));
+    const issues = computeHealthIssues(makeSnapshot(src), TODAY);
     expect(issues.some((i) => i.kind === 'orphaned_hoist')).toBe(false);
   });
 });
 
 describe('computeHealthIssues — high score / no conditions', () => {
   it('flags an active candidate with score >= 30 and no conditions', () => {
-    const issues = computeHealthIssues(makeSnapshot(HIGH_NO_COND));
+    const issues = computeHealthIssues(makeSnapshot(HIGH_NO_COND), TODAY);
     expect(issues.some((i) => i.kind === 'high_score_no_conditions' && i.id === 'high-one')).toBe(true);
   });
 
   it('includes the score in the detail', () => {
-    const issues = computeHealthIssues(makeSnapshot(HIGH_NO_COND));
+    const issues = computeHealthIssues(makeSnapshot(HIGH_NO_COND), TODAY);
     const issue = issues.find((i) => i.kind === 'high_score_no_conditions');
     expect(issue?.detail).toMatch(/score 32/);
   });
 
   it('does not flag a candidate below the threshold', () => {
-    const issues = computeHealthIssues(makeSnapshot(HEALTHY));
+    const issues = computeHealthIssues(makeSnapshot(HEALTHY), TODAY);
     expect(issues.some((i) => i.kind === 'high_score_no_conditions')).toBe(false);
   });
 });
 
 describe('computeHealthIssues — multi-file workspace', () => {
   it('accumulates issues from all files in the snapshot', () => {
-    const issues = computeHealthIssues(makeSnapshot(STALE, HIGH_NO_COND));
+    const issues = computeHealthIssues(makeSnapshot(STALE, HIGH_NO_COND), TODAY);
     expect(issues.some((i) => i.kind === 'stale')).toBe(true);
     expect(issues.some((i) => i.kind === 'high_score_no_conditions')).toBe(true);
   });

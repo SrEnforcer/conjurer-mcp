@@ -3,6 +3,8 @@ import * as vscode from 'vscode';
 const HOIST_START_RE = /^\(f\/hoist\b/;
 const CANDIDATE_START_RE = /^\(f\/candidate\b/;
 const STATUS_HOISTED_RE = /:status\s+:hoisted\b/;
+const HOIST_OF_RE = /\(f\/hoist\s+:of\s+:?([^\s()\[\]{}]+)/g;
+const CANDIDATE_ID_RE = /^\(f\/candidate\s+:?([^\s()\[\]{}]+)/;
 const TOP_FORM_RE = /^\([a-zA-Z]/;
 const DECISIONS_START_RE = /^\s*:decisions\s*\[/;
 
@@ -20,12 +22,19 @@ const foldRangeFromStart = (
   end: (starts[index + 1] ?? lines.length) - 1,
 });
 
-const shouldFoldRange = (lines: ReadonlyArray<string>, range: FoldRange): boolean => {
+// A candidate is hoisted once an f/hoist names it (foresight.md · f/reassess); its own
+// :status is never edited, so the hoist forms are the evidence, with :status :hoisted kept
+// for files written before that rule.
+const hoistedIds = (lines: ReadonlyArray<string>): ReadonlyArray<string> =>
+  Array.from(lines.join('\n').matchAll(HOIST_OF_RE), (match) => match[1] ?? '');
+
+const shouldFoldRange = (lines: ReadonlyArray<string>, range: FoldRange, hoisted: ReadonlyArray<string>): boolean => {
   const firstLine = lines[range.start] ?? '';
   if (HOIST_START_RE.test(firstLine)) return true;
   if (!CANDIDATE_START_RE.test(firstLine)) return false;
+  const id = CANDIDATE_ID_RE.exec(firstLine)?.[1] ?? '';
   const body = lines.slice(range.start, range.end + 1).join('\n');
-  return STATUS_HOISTED_RE.test(body);
+  return hoisted.includes(id) || STATUS_HOISTED_RE.test(body);
 };
 
 const countBracketDelta = (line: string): number =>
@@ -50,15 +59,17 @@ const decisionStarts = (lines: ReadonlyArray<string>): ReadonlyArray<number> =>
 
 /**
  * Pure: compute fold ranges for forms that should be collapsed by default.
- * Folds: (f/hoist ...) forms and (f/candidate ...) forms with :status :hoisted.
+ * Folds: (f/hoist ...) forms and (f/candidate ...) forms that an f/hoist names (or that say :status :hoisted).
  * Returns plain {start, end} pairs so callers can test without vscode types.
  */
 export const computeHoistFoldRanges = (
   lines: ReadonlyArray<string>,
-): ReadonlyArray<FoldRange> =>
-  topFormStarts(lines)
+): ReadonlyArray<FoldRange> => {
+  const hoisted = hoistedIds(lines);
+  return topFormStarts(lines)
     .map((_, index, starts) => foldRangeFromStart(lines, starts, index))
-    .filter((range) => shouldFoldRange(lines, range));
+    .filter((range) => shouldFoldRange(lines, range, hoisted));
+};
 
 /**
  * Pure: compute fold ranges for :decisions [...] blocks.
