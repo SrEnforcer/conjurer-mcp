@@ -67,7 +67,7 @@ const skipWS = (s: LS): LS => {
   return skipWS(skipLine(advL(s)));
 };
 
-const isSymS = (c: string): boolean => /^[a-zA-Z_\-+*/?!<>='~]$/.test(c);
+const isSymS = (c: string): boolean => /^[a-zA-Z_\-+*/?!<>='~&]$/.test(c);
 const isSymC = (c: string): boolean => isSymS(c) || (c >= '0' && c <= '9');
 const isNumS = (s: LS): boolean => {
   const c = curC(s);
@@ -102,6 +102,10 @@ const lexNum = (s: LS): Result<LR, ParseError> => {
     curC(t) >= '0' && curC(t) <= '9' ? digits(advL(t), a + curC(t)) : { token: { type: 'number', value: a, line: s.line, column: col }, next: t };
   const neg = curC(s) === '-';
   const w = digits(neg ? advL(s) : s, neg ? '-' : '');
+  if (curC(w.next) === '/' && peekC(w.next) >= '0' && peekC(w.next) <= '9') {
+    const d = digits(advL(w.next), w.token.value + '/');
+    return ok({ token: { type: 'number', value: d.token.value, line: s.line, column: col }, next: d.next });
+  }
   if (curC(w.next) === '.' && peekC(w.next) >= '0' && peekC(w.next) <= '9') {
     const f = digits(advL(w.next), w.token.value + '.');
     return ok({ token: { type: 'number', value: f.token.value, line: s.line, column: col }, next: f.next });
@@ -221,6 +225,12 @@ const COLLECTIONS: ReadonlyMap<string, BrCtx> = intoMap<string, BrCtx>([
   ['lset', { open: 'lset', close: 'rbrace', delimiter: 'set' }],
 ]);
 
+/** Number token to value; a ratio such as `1/5` becomes its quotient. */
+const numValue = (text: string): number => {
+  const [num, den] = text.split('/');
+  return den === undefined ? Number(num) : Number(num) / Number(den);
+};
+
 const parseExpr = (s: PS): PR<EdnNode> => {
   const t = pCur(s);
   if (t.type === 'lparen')   return parseSeq(s, { open: 'lparen',   close: 'rparen'  }, parseExpr);
@@ -230,7 +240,7 @@ const parseExpr = (s: PS): PR<EdnNode> => {
   if (t.type === 'keyword')  return ok({ value: { type: 'keyword', value: t.value, line: t.line, column: t.column }, next: pAdv(s) });
   if (t.type === 'symbol')   return ok({ value: { type: 'symbol',  value: t.value, line: t.line, column: t.column }, next: pAdv(s) });
   if (t.type === 'string')   return ok({ value: { type: 'string',  value: unquote(t.value), line: t.line, column: t.column }, next: pAdv(s) });
-  if (t.type === 'number')   return ok({ value: { type: 'number',  value: Number(t.value), line: t.line, column: t.column }, next: pAdv(s) });
+  if (t.type === 'number')   return ok({ value: { type: 'number',  value: numValue(t.value), line: t.line, column: t.column }, next: pAdv(s) });
   if (t.type === 'boolean')  return ok({ value: { type: 'boolean', value: t.value === 'true', line: t.line, column: t.column }, next: pAdv(s) });
   if (t.type === 'nil')      return ok({ value: { type: 'nil', line: t.line, column: t.column }, next: pAdv(s) });
   return err(mkErr(`Unexpected token: ${t.type}`, t.line, t.column));
