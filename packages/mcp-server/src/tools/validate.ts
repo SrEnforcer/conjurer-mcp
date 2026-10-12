@@ -1,7 +1,6 @@
 /**
  * Validation-oriented MCP tools for cnj documents.
  */
-/* eslint-disable functional/prefer-readonly-type -- DEVIATION(2.2): SDK interop surfaces mutable shape annotations in adapter code paths. */
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { dirname, resolve as resolvePath } from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -41,12 +40,15 @@ const loadReferencedDocs = (filePath: string, references: ReadonlyArray<string>)
       return isErr(model) ? [] : [model.value];
     });
 
-export const handleValidate = (
-  filePath: string,
-  mode: string | undefined = undefined,
-  strict: boolean | undefined = undefined,
-  index: SymbolIndex | undefined = undefined,
-): ToolContent => {
+/** Options for validate_cnj: the mode, strictness, and the symbol index when one is loaded. */
+export type ValidateRequest = {
+  readonly mode?: string;
+  readonly strict?: boolean;
+  readonly index?: SymbolIndex;
+};
+
+export const handleValidate = (filePath: string, request: ValidateRequest = {}): ToolContent => {
+  const { mode, strict, index } = request;
   if (!existsSync(filePath)) return toContent(`File not found: ${filePath}`);
   const src = readFileSync(filePath, 'utf8');
   const parsed = parse(src);
@@ -75,14 +77,14 @@ export const handleValidate = (
 
 // ── lint_disk_consistency helpers ────────────────────────────────────────────
 
-const SKIP_DIRS = ['node_modules', 'dist', '.git', 'coverage', '.turbo'] as const;
+const SKIP_DIRS: ReadonlyArray<string> = ['node_modules', 'dist', '.git', 'coverage', '.turbo'];
 
 const inSkipDir = (rel: string): boolean =>
-  (SKIP_DIRS as ReadonlyArray<string>).some((d) => rel.split('/').includes(d));
+  SKIP_DIRS.some((d) => rel.split('/').includes(d));
 
 const moduleExistsInTree = (root: string, filename: string): boolean => {
   try {
-    const entries = readdirSync(root, { recursive: true }) as ReadonlyArray<string>;
+    const entries: ReadonlyArray<string> = readdirSync(root, { recursive: true, encoding: 'utf8' });
     // Normalise separators so 'tools/retrieval.ts' matches on any platform.
     const norm = filename.replace(/\\/g, '/');
     return entries.some((rel) => {
@@ -167,7 +169,13 @@ export const registerValidateTools = (server: McpServer, ctx?: ValidateContext):
       mode: z.enum(['authored', 'recovered']).optional(),
       strict: z.boolean().optional(),
     },
-  }, ({ path, mode, strict }) => ({ content: [...handleValidate(path, mode, strict, ctx?.index)] }));
+  }, ({ path, mode, strict }) => ({
+    content: [...handleValidate(path, {
+      ...(mode !== undefined ? { mode } : {}),
+      ...(strict !== undefined ? { strict } : {}),
+      ...(ctx !== undefined ? { index: ctx.index } : {}),
+    })],
+  }));
 
   server.registerTool('lint_disk_consistency', {
     description:
