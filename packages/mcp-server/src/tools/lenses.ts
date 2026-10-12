@@ -4,19 +4,25 @@
 /* eslint-disable no-restricted-syntax -- DEVIATION(1.9): graph traversal requires constructor-based collections at module boundary. */
 /* eslint-disable functional/no-loop-statements -- DEVIATION(4.2): dependency-graph traversals require explicit loops for deterministic bounded scans. */
 /* eslint-disable functional/immutable-data -- DEVIATION(2.3): local mutation is confined to ephemeral accumulators during graph assembly. */
-/* eslint-disable max-lines-per-function -- DEVIATION(3.4): lens handlers mirror MCP contract branches; workspace fold logic is kept together. */
-/* eslint-disable functional/prefer-readonly-type -- DEVIATION(2.2): SDK interop surfaces mutable shape annotations in adapter code paths. */
 import { resolve as resolvePath } from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { buildWorkspaceSnapshot, topoOrder, validateCnj } from '@conjurer/core';
-import { isErr, fromNullable, getOrElse } from '@tsfpp/prelude';
+import { isErr, fromNullable, getOrElse, intoMap } from '@tsfpp/prelude';
+import type { WorkspaceSnapshot } from '@conjurer/core';
 
 type ToolContent = ReadonlyArray<{ readonly type: 'text'; readonly text: string }>;
 
 const toContent = (text: string): ToolContent => [{ type: 'text', text }];
 
-const scopeMeta = (entry: string, filesDiscovered: number) => ({
+type ScopeMeta = {
+  readonly method: 'references_bfs';
+  readonly entry: string;
+  readonly files_discovered: number;
+  readonly note: string;
+};
+
+const scopeMeta = (entry: string, filesDiscovered: number): ScopeMeta => ({
   method: 'references_bfs' as const,
   entry,
   files_discovered: filesDiscovered,
@@ -42,6 +48,28 @@ const reachableFrom = (
   return Array.from(result);
 };
 
+// Which file declares each target; a later declaration of the same name wins.
+const targetFiles = (snapshot: WorkspaceSnapshot): ReadonlyMap<string, string> =>
+  intoMap(Array.from(snapshot.files.values()).flatMap((f) => f.doc.targets.map((t) => [t.name, f.path] as const)));
+
+const scopedEdges = (
+  graph: ReadonlyMap<string, ReadonlyArray<string>>,
+  scope: ReadonlyArray<string>,
+): ReadonlyArray<{ readonly from: string; readonly to: string }> =>
+  Array.from(graph.entries())
+    .filter(([tgt]) => scope.includes(tgt))
+    .flatMap(([tgt, deps]) => deps.filter((dep) => scope.includes(dep)).map((dep) => ({ from: dep, to: tgt })));
+
+// Target names grouped by declaring file, in scope order.
+const groupByFile = (
+  scope: ReadonlyArray<string>,
+  fileOf: (name: string) => string,
+): Readonly<Record<string, ReadonlyArray<string>>> =>
+  scope.reduce<Readonly<Record<string, ReadonlyArray<string>>>>((acc, name) => {
+    const file = fileOf(name);
+    return { ...acc, [file]: [...(acc[file] ?? []), name] };
+  }, {});
+
 /**
  * Return the cross-file target dependency graph and topological order.
  *
@@ -58,41 +86,15 @@ export const handleLensDependencyGraph = (
   if (isErr(snapshotRes)) return toContent(`Workspace error: ${snapshotRes.error}`);
   const snapshot = snapshotRes.value;
 
-  const allFiles = Array.from(snapshot.files.values());
-  // DEVIATION(2.2): Mutable map used for adjacency/file indexing at adapter boundary.
-  const targetFileMap = new Map<string, string>();
-  // DEVIATION(4.2): Graph indexing loop across workspace files.
-  for (const f of allFiles) {
-    // DEVIATION(4.2): Nested target iteration for index construction.
-    for (const t of f.doc.targets) targetFileMap.set(t.name, f.path);
-  }
-
+  const fileOfTarget = targetFiles(snapshot);
+  const fileOf = (name: string): string => getOrElse(() => abs)(fromNullable(fileOfTarget.get(name)));
   const scope: ReadonlyArray<string> = target !== undefined
     ? reachableFrom(target, snapshot.targetEdges)
     : Array.from(snapshot.targetEdges.keys());
-
-  const scopeSet = new Set(scope);
-  const nodes = scope.map((name) => ({ name, file: getOrElse(() => abs)(fromNullable(targetFileMap.get(name))) }));
-
-  const edges: Array<{ from: string; to: string }> = [];
-  // DEVIATION(4.2): Graph edge extraction loop over adjacency lists.
-  for (const [tgt, deps] of snapshot.targetEdges.entries()) {
-    if (!scopeSet.has(tgt)) continue;
-    // DEVIATION(4.2): Dependency edge scan inside adjacency iteration.
-    for (const dep of deps) {
-      if (scopeSet.has(dep)) edges.push({ from: dep, to: tgt });
-    }
-  }
-
-  const order = topoOrder(snapshot, abs).filter((n) => scopeSet.has(n));
-
-  const byFile: Record<string, string[]> = {};
-  // DEVIATION(4.2): File grouping loop for graph output shaping.
-  for (const name of scope) {
-    const file = getOrElse(() => abs)(fromNullable(targetFileMap.get(name)));
-    if (byFile[file] === undefined) byFile[file] = [];
-    byFile[file].push(name);
-  }
+  const nodes = scope.map((name) => ({ name, file: fileOf(name) }));
+  const edges = scopedEdges(snapshot.targetEdges, scope);
+  const order = topoOrder(snapshot, abs).filter((n) => scope.includes(n));
+  const byFile = groupByFile(scope, fileOf);
 
   return toContent(JSON.stringify({
     nodes,

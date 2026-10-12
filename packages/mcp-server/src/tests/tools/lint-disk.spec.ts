@@ -64,19 +64,10 @@ const WITH_SUBDIR_MODULE = `
 //   /vfs/lint/both.cnj    — WITH_BOTH_ISSUES
 
 vi.mock('node:fs', () => ({
-  existsSync: (path: string): boolean => {
-    const present = new Set([
-      '/vfs/lint/main.cnj',
-      '/vfs/lint/other.cnj',
-      '/vfs/lint/empty.cnj',
-      '/vfs/lint/missing.cnj',
-      '/vfs/lint/bad-ref.cnj',
-      '/vfs/lint/both.cnj',
-      '/vfs/lint/sub.cnj',
-      '/vfs/lint/present.ts',
-    ]);
-    return present.has(path);
-  },
+  existsSync: (path: string): boolean => [
+    '/vfs/lint/main.cnj', '/vfs/lint/other.cnj', '/vfs/lint/empty.cnj', '/vfs/lint/missing.cnj',
+    '/vfs/lint/bad-ref.cnj', '/vfs/lint/both.cnj', '/vfs/lint/sub.cnj', '/vfs/lint/present.ts',
+  ].includes(path),
   readFileSync: (path: string): string => {
     const files: Record<string, string> = {
       '/vfs/lint/main.cnj': WITH_MODULES,

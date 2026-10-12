@@ -129,8 +129,7 @@ describe('toCnjModel — combined', () => {
   });
 });
 
-describe('toCnjModel — f/candidate', () => {
-  const CANDIDATE_SRC = `
+const CANDIDATE_SRC = `
 (f/candidate :my-feature
   :label "My feature"
   :cluster :cluster-a
@@ -140,6 +139,12 @@ describe('toCnjModel — f/candidate', () => {
   :rationale "Worth keeping because X. Deferred until Y."
   :conditions ["Y must be done first"])`;
 
+const firstCandidate = (src: string): CnjCandidateForm | undefined => {
+  const r = parseAndModel(src);
+  return isOk(r) ? r.value.candidates[0] : undefined;
+};
+
+describe('toCnjModel — f/candidate fields', () => {
   it('parses a f/candidate form', () => {
     const r = parseAndModel(CANDIDATE_SRC);
     expect(isOk(r)).toBe(true);
@@ -148,41 +153,36 @@ describe('toCnjModel — f/candidate', () => {
   });
 
   it('extracts id from the second element', () => {
-    const r = parseAndModel(CANDIDATE_SRC);
-    if (!isOk(r)) return;
-    const c = r.value.candidates[0] as CnjCandidateForm;
-    expect(c.id).toBe('my-feature');
+    const c = firstCandidate(CANDIDATE_SRC);
+    expect(c?.id).toBe('my-feature');
   });
 
   it('extracts string fields', () => {
-    const r = parseAndModel(CANDIDATE_SRC);
-    if (!isOk(r)) return;
-    const c = r.value.candidates[0] as CnjCandidateForm;
-    expect(c.label).toBe('My feature');
-    expect(c.cluster).toBe('cluster-a');
-    expect(c.status).toBe('proposed');
-    expect(c.added).toBe('2026-06-10');
-    expect(c.rationale).toBe('Worth keeping because X. Deferred until Y.');
+    const c = firstCandidate(CANDIDATE_SRC);
+    expect(c?.label).toBe('My feature');
+    expect(c?.cluster).toBe('cluster-a');
+    expect(c?.status).toBe('proposed');
+    expect(c?.added).toBe('2026-06-10');
+    expect(c?.rationale).toBe('Worth keeping because X. Deferred until Y.');
   });
 
   it('extracts scores as a map of numbers', () => {
-    const r = parseAndModel(CANDIDATE_SRC);
-    if (!isOk(r)) return;
-    const c = r.value.candidates[0] as CnjCandidateForm;
-    expect(c.scores.get('feasibility')).toBe(7);
-    expect(c.scores.get('elegance')).toBe(9);
-    expect(c.scores.get('containment')).toBe(8);
-    expect(c.scores.get('value')).toBe(8);
+    const c = firstCandidate(CANDIDATE_SRC);
+    expect(c?.scores.get('feasibility')).toBe(7);
+    expect(c?.scores.get('elegance')).toBe(9);
+    expect(c?.scores.get('containment')).toBe(8);
+    expect(c?.scores.get('value')).toBe(8);
   });
 
   it('extracts conditions list', () => {
-    const r = parseAndModel(CANDIDATE_SRC);
-    if (!isOk(r)) return;
-    const c = r.value.candidates[0] as CnjCandidateForm;
-    expect(c.conditions.length).toBe(1);
-    expect(c.conditions[0]).toBe('Y must be done first');
+    const c = firstCandidate(CANDIDATE_SRC);
+    expect(c?.conditions.length).toBe(1);
+    expect(c?.conditions[0]).toBe('Y must be done first');
   });
 
+});
+
+describe('toCnjModel — f/candidate collection', () => {
   it('accumulates multiple candidates', () => {
     const src = `
 (f/candidate :one :label "One" :cluster :x :added "2026-01-01" :status :proposed
@@ -237,15 +237,16 @@ describe('toCnjModel — f/candidate :history (CnjReassessment)', () => {
     const r = parseAndModel(src);
     expect(isOk(r)).toBe(true);
     if (!isOk(r)) return;
-    const history = r.value.candidates[0]?.history;
-    expect(history?.length).toBe(1);
-    expect(history?.[0]?.of).toBe('x');
-    expect(history?.[0]?.date).toBe('2026-08-14');
-    expect(history?.[0]?.scores.get('feasibility')).toBe(9);
-    expect(history?.[0]?.rationale).toMatch(/Parser landed/);
-    expect(history?.[0]?.status).toBe('planned');
+    const history = r.value.candidates[0]?.history ?? [];
+    expect(history).toMatchObject([
+      { of: 'x', date: '2026-08-14', rationale: expect.stringMatching(/Parser landed/), status: 'planned' },
+    ]);
+    expect(history[0]?.scores.get('feasibility')).toBe(9);
   });
 
+});
+
+describe('toCnjModel — f/candidate :history ordering', () => {
   it('parses multiple reassessments preserving insertion order', () => {
     const src = `(charter "P" :version "1.0.0")
 (f/candidate :y :label "Y" :cluster :c :added "2026-01-01" :status :proposed

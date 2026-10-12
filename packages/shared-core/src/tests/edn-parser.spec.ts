@@ -232,3 +232,30 @@ describe('parse/tokenize — properties', () => {
     );
   });
 });
+
+describe('parse — ratios', () => {
+  it('parses a ratio as its quotient and a negative ratio too', () => {
+    const r = parse('1/5 -3/4');
+    const values = isOk(r) ? r.value.map((n) => (n.type === 'number' ? n.value : NaN)) : [];
+    expect(values).toEqual([0.2, -0.75]);
+  });
+
+  it('keeps / as a symbol constituent elsewhere', () => {
+    const r = parse('w/prototype');
+    expect(isOk(r) && r.value[0]?.type === 'symbol').toBe(true);
+  });
+});
+
+describe('parse — dots in keywords and symbols', () => {
+  it('keeps a dot inside a keyword or symbol', () => {
+    const r = parse('{:body :die.ivory :pips :die.pip-on-light} java.util.Date');
+    const kws = isOk(r) && r.value[0]?.type === 'map' ? Array.from(r.value[0].entries.values()).map((n) => (n.type === 'keyword' ? n.value : '')) : [];
+    expect(kws).toEqual([':die.ivory', ':die.pip-on-light']);
+    expect(isOk(r) && r.value[1]?.type === 'symbol' && r.value[1].value).toBe('java.util.Date');
+  });
+
+  it('still reads decimals as numbers', () => {
+    const r = parse('1.5 -0.25');
+    expect(isOk(r) ? r.value.map((n) => (n.type === 'number' ? n.value : NaN)) : []).toEqual([1.5, -0.25]);
+  });
+});

@@ -167,7 +167,7 @@ describe('handleDiffCandidates', () => {
   it('detects added candidates (in B, not in A)', () => {
     const r = handleDiffCandidates('/vfs/diff/backlog-a.cnj', '/vfs/diff/backlog-b.cnj');
     const d = parseFirstToolObject(r);
-    const ids = d.candidates.added.map((c: { id: string }) => c.id);
+    const ids = d.candidates.added.map((c: { readonly id: string }) => c.id);
     expect(ids).toContain('gamma');
     expect(ids).not.toContain('alpha');
     expect(ids).not.toContain('beta');
@@ -185,14 +185,14 @@ describe('handleDiffCandidates', () => {
   it('does not report hoisted candidates as removed', () => {
     const r = handleDiffCandidates('/vfs/diff/backlog-a.cnj', '/vfs/diff/backlog-b.cnj');
     const d = parseFirstToolObject(r);
-    const removedIds = d.candidates.removed.map((c: { id: string }) => c.id);
+    const removedIds = d.candidates.removed.map((c: { readonly id: string }) => c.id);
     expect(removedIds).not.toContain('alpha');
   });
 
   it('detects status changes (proposed → planned)', () => {
     const r = handleDiffCandidates('/vfs/diff/backlog-a.cnj', '/vfs/diff/backlog-b.cnj');
     const d = parseFirstToolObject(r);
-    const betaChange = d.candidates.status_changes.find((c: { id: string }) => c.id === 'beta');
+    const betaChange = d.candidates.status_changes.find((c: { readonly id: string }) => c.id === 'beta');
     expect(betaChange).toBeDefined();
     expect(betaChange.before).toBe('proposed');
     expect(betaChange.after).toBe('planned');
@@ -202,7 +202,7 @@ describe('handleDiffCandidates', () => {
     // beta :value changed from 6 to 7
     const r = handleDiffCandidates('/vfs/diff/backlog-a.cnj', '/vfs/diff/backlog-b.cnj');
     const d = parseFirstToolObject(r);
-    const betaScoreDiff = d.candidates.score_changes.find((c: { id: string }) => c.id === 'beta');
+    const betaScoreDiff = d.candidates.score_changes.find((c: { readonly id: string }) => c.id === 'beta');
     expect(betaScoreDiff).toBeDefined();
     expect(betaScoreDiff.score_changes.value.before).toBe(6);
     expect(betaScoreDiff.score_changes.value.after).toBe(7);

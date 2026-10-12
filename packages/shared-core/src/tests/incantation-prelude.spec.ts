@@ -55,16 +55,3 @@ describe('checkIncantationPrelude', () => {
     expect(checkIncantationPrelude(forms('(incantation x [m] :doc "nothing yet")'), PRELUDE)).toEqual([]);
   });
 });
-
-describe('parse — ratios', () => {
-  it('parses a ratio as its quotient and a negative ratio too', () => {
-    const r = parse('1/5 -3/4');
-    const values = isOk(r) ? r.value.map((n) => (n.type === 'number' ? n.value : NaN)) : [];
-    expect(values).toEqual([0.2, -0.75]);
-  });
-
-  it('keeps / as a symbol constituent elsewhere', () => {
-    const r = parse('w/prototype');
-    expect(isOk(r) && r.value[0]?.type === 'symbol').toBe(true);
-  });
-});

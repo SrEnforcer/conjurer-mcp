@@ -3,24 +3,24 @@ import { describe, it, expect } from 'vitest';
 import { computeHealthIssues } from '../providers/status-bar.js';
 import { parse, toCnjModel } from '@conjurer/core';
 import type { WorkspaceSnapshot, ParsedFileEntry } from '@conjurer/core';
-import { isErr } from '@tsfpp/prelude';
+import { isErr, intoMap } from '@tsfpp/prelude';
 
 // Build a real ParsedFileEntry from raw EDN so tests use the actual parser/model.
 const makeEntry = (src: string, filePath = '/test/test.cnj'): ParsedFileEntry => {
   const parsed = parse(src);
-  if (isErr(parsed)) throw new Error(`parse error: ${parsed.error.message}`);
+  if (isErr(parsed)) return expect.unreachable(`parse error: ${parsed.error.message}`);
   const doc = toCnjModel(parsed.value, filePath);
-  if (isErr(doc)) throw new Error(`model error: ${doc.error}`);
+  if (isErr(doc)) return expect.unreachable(`model error: ${doc.error}`);
   return { path: filePath, content: src, doc: doc.value, directRefs: [] };
 };
 
 const makeSnapshot = (...srcs: string[]): WorkspaceSnapshot => ({
-  files: new Map(srcs.map((src, i) => {
+  files: intoMap(srcs.map((src, i) => {
     const path = `/test/file${i}.cnj`;
-    return [path, makeEntry(src, path)];
+    return [path, makeEntry(src, path)] as const;
   })),
-  targetEdges: new Map(),
-  bindingDeps: new Map(),
+  targetEdges: intoMap([]),
+  bindingDeps: intoMap([]),
   unresolvedDeps: [],
   cycleDetected: false,
 });
@@ -89,7 +89,7 @@ describe('computeHealthIssues — healthy workspace', () => {
   });
 
   it('returns empty for an empty snapshot (no files)', () => {
-    const snapshot: WorkspaceSnapshot = { files: new Map(), targetEdges: new Map(), bindingDeps: new Map(), unresolvedDeps: [], cycleDetected: false };
+    const snapshot: WorkspaceSnapshot = { files: intoMap([]), targetEdges: intoMap([]), bindingDeps: intoMap([]), unresolvedDeps: [], cycleDetected: false };
     expect(computeHealthIssues(snapshot, TODAY)).toHaveLength(0);
   });
 });

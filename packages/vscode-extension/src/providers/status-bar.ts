@@ -35,9 +35,47 @@ export const computeHealthIssues = (snapshot: WorkspaceSnapshot, today: string =
   ];
 };
 
-export const registerForesightStatusBar = (ctx: vscode.ExtensionContext): void => {
-  // DEVIATION(1.9): vscode.StatusBarItem is a VS Code adapter type.
+const issuesFor = (fileName: string): ReadonlyArray<HealthIssue> => {
+  const snapshotRes = buildWorkspaceSnapshot(fileName);
+  return isErr(snapshotRes) ? [] : computeHealthIssues(snapshotRes.value);
+};
+
+const plural = (n: number): string => (n === 1 ? '' : 's');
+
+const renderStatus = (item: vscode.StatusBarItem, issues: ReadonlyArray<HealthIssue>): void => {
+  if (issues.length === 0) {
+    item.text = '$(check) Conjurer';
+    item.tooltip = 'Foresight backlog healthy';
+    item.backgroundColor = undefined;
+    return;
+  }
+  item.text = `$(warning) ${issues.length} foresight issue${plural(issues.length)}`;
+  item.tooltip = issues.map((i) => `${i.kind}: ${i.label}`).join('\n');
+  // DEVIATION(1.9): vscode.ThemeColor is a VS Code adapter type.
   // eslint-disable-next-line no-restricted-syntax
+  item.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+};
+
+const showForesightHealth = (): void => {
+  const doc = vscode.window.activeTextEditor?.document;
+  if (doc === undefined || !doc.fileName.endsWith('.cnj')) return;
+  const issues = issuesFor(doc.fileName);
+  if (issues.length === 0) {
+    void vscode.window.showInformationMessage('Foresight backlog is healthy — no issues found.');
+    return;
+  }
+  const items = issues.map((issue) => ({
+    label: `$(warning) ${issue.label}`,
+    description: issue.detail,
+    detail: issue.kind,
+  }));
+  void vscode.window.showQuickPick(items, {
+    title: `Foresight Health (${issues.length} issue${plural(issues.length)})`,
+    canPickMany: false,
+  });
+};
+
+export const registerForesightStatusBar = (ctx: vscode.ExtensionContext): void => {
   const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   item.command = 'conjurer.showForesightHealth';
 
@@ -46,43 +84,14 @@ export const registerForesightStatusBar = (ctx: vscode.ExtensionContext): void =
       item.hide();
       return;
     }
-    const snapshotRes = buildWorkspaceSnapshot(document.fileName);
-    const issues = isErr(snapshotRes) ? [] : computeHealthIssues(snapshotRes.value);
-    if (issues.length === 0) {
-      item.text = '$(check) Conjurer';
-      item.tooltip = 'Foresight backlog healthy';
-      item.backgroundColor = undefined;
-    } else {
-      item.text = `$(warning) ${issues.length} foresight issue${issues.length === 1 ? '' : 's'}`;
-      item.tooltip = issues.map((i) => `${i.kind}: ${i.label}`).join('\n');
-      // eslint-disable-next-line no-restricted-syntax
-      item.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-    }
+    renderStatus(item, issuesFor(document.fileName));
     item.show();
   };
 
   ctx.subscriptions.push(
     item,
     vscode.window.onDidChangeActiveTextEditor((editor) => refresh(editor?.document)),
-    vscode.commands.registerCommand('conjurer.showForesightHealth', () => {
-      const doc = vscode.window.activeTextEditor?.document;
-      if (doc === undefined || !doc.fileName.endsWith('.cnj')) return;
-      const snapshotRes = buildWorkspaceSnapshot(doc.fileName);
-      const issues = isErr(snapshotRes) ? [] : computeHealthIssues(snapshotRes.value);
-      if (issues.length === 0) {
-        void vscode.window.showInformationMessage('Foresight backlog is healthy — no issues found.');
-        return;
-      }
-      const items = issues.map((issue) => ({
-        label: `$(warning) ${issue.label}`,
-        description: issue.detail,
-        detail: issue.kind,
-      }));
-      void vscode.window.showQuickPick(items, {
-        title: `Foresight Health (${issues.length} issue${issues.length === 1 ? '' : 's'})`,
-        canPickMany: false,
-      });
-    }),
+    vscode.commands.registerCommand('conjurer.showForesightHealth', showForesightHealth),
   );
 
   refresh(vscode.window.activeTextEditor?.document);
