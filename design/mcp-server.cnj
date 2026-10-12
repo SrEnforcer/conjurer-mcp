@@ -245,7 +245,8 @@
                 f/hoist forms. Both use kvMap(elems, 1) + getStr(kv, 'of') since
                 ':of IDENTIFIER' is syntactic positioning, not a positional argument.
                 Both types exported from @conjurer/core. 14 new tests (cnj-model.spec.ts)."}
-    {:date "2026-06-10"
+    {:id :lens-hoist-readiness-2026-06-10
+     :date "2026-06-10"
      :decision "lens_hoist_readiness added as a foresight-cluster tool (Cluster-F).
                 Pure fold over workspace candidates filtered to active statuses
                 (proposed/planned) with total score >= min_score (default 28). Returns
@@ -255,7 +256,8 @@
                 candidates_with_reassessment). Implements the foresight→r/decide handoff
                 explicitly: the agent gets structure without the server claiming to know
                 if conditions are met. Handler in tools/foresight.ts. 416/416 tests pass."}
-    {:date "2026-06-10"
+    {:id :diff-candidates-2026-06-10
+     :date "2026-06-10"
      :decision "diff_candidates added as a Cluster-B tool (alongside diff_cnj in
                 tools/diff.ts). Semantic backlog diff between two .cnj snapshots keyed
                 by stable :id. Returns: added (in B not A), removed (in A not B and
@@ -265,7 +267,8 @@
                 distinguishes graduation from removal — a candidate that became a
                 decision is structurally different from one that was dropped.
                 summary.graduation_count surfaces the count explicitly. 416/416 tests pass."}
-    {:date "2026-06-10"
+    {:id :lint-disk-consistency-2026-06-10
+     :date "2026-06-10"
      :decision "lint_disk_consistency implemented as a new Cluster-C tool (planned status resolved).
                 Pure I/O check: for each target's :modules entries, search the filesystem under
                 a configurable root (default: dirname of the .cnj path) for a file matching the
@@ -318,6 +321,8 @@
                 New module references.ts parses references and collects declared names.
                 validate_cnj adds decision-id-unique (error) and reference-resolves /
                 reference-kind (warnings) over f/hoist :into and decision :supersedes.
+                A reference resolves against the project: the file itself and the .cnj
+                files its charter :references name.
                 A target's :from resolves against every binding — def, :manifest name or
                 target — across the workspace (Q-14); target edges hold only target
                 dependencies, binding dependencies are reported separately."}
@@ -579,7 +584,8 @@
                  :deferred, and (warning) no item is both :prefers and :forbids.
                  :manifest binds output names and is not part of the topology"
                 "decision ids are unique; f/hoist :into and :supersedes resolve to a
-                 declared form of the right kind"
+                 declared form of the right kind, in this file or a .cnj file its
+                 charter :references name"
                 "an ensure that claims :verify-via :mcp uses only prelude forms"
                 "retired forms draw a migration warning naming the current form"]
   :mode-note   ":recovered relaxes the rules for a .cnj produced by an exhume

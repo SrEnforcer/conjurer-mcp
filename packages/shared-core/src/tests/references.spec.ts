@@ -97,3 +97,16 @@ describe('checkFormReferences', () => {
     expect(checkFormReferences(doc).map((v) => [v.rule, v.severity])).toEqual([['decision-id-unique', 'error']]);
   });
 });
+
+describe('checkFormReferences across the project', () => {
+  it('resolves a reference against a .cnj file the charter references', () => {
+    const doc = parseDoc(`(charter "Anchor" :version "1.0.0" :goals ["g"] :references ["platform.cnj"])
+      (f/hoist :of :diff-intent :date "2026-11-20" :into :decision/small-amendments)`);
+    const referenced = parseDoc(charterWithDecisions);
+    expect(doc).toBeDefined();
+    expect(referenced).toBeDefined();
+    if (doc === undefined || referenced === undefined) return;
+    expect(checkFormReferences(doc)).toHaveLength(1);
+    expect(checkFormReferences(doc, [referenced])).toEqual([]);
+  });
+});

@@ -7,7 +7,7 @@ import { dirname, resolve as resolvePath } from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { parse, toCnjModel, validateCnj, collectSymbolRefs } from '@conjurer/core';
-import type { ValidationMode, SymbolIndex, EdnNode } from '@conjurer/core';
+import type { ValidationMode, SymbolIndex, EdnNode, CnjDocument } from '@conjurer/core';
 import { isErr, isDefined } from '@tsfpp/prelude';
 
 type ToolContent = ReadonlyArray<{ readonly type: 'text'; readonly text: string }>;
@@ -20,6 +20,26 @@ const parseMode = (mode: string | undefined = undefined): ValidationMode =>
 export type ValidateContext = {
   readonly index: SymbolIndex;
 };
+
+/**
+ * Parse the local `.cnj` files a charter references, so reference keywords resolve across the
+ * project. Unreadable or unparsable files are skipped; `references-resolve` reports them.
+ *
+ * @param filePath - The validated file.
+ * @param references - Its charter `:references`.
+ * @returns The referenced documents that could be read.
+ */
+const loadReferencedDocs = (filePath: string, references: ReadonlyArray<string>): ReadonlyArray<CnjDocument> =>
+  references
+    .filter((ref) => ref.endsWith('.cnj') && !/^https?:\/\//.test(ref))
+    .map((ref) => resolvePath(dirname(filePath), ref))
+    .filter((path) => existsSync(path))
+    .flatMap((path): ReadonlyArray<CnjDocument> => {
+      const ast = parse(readFileSync(path, 'utf8'));
+      if (isErr(ast)) return [];
+      const model = toCnjModel(ast.value, path);
+      return isErr(model) ? [] : [model.value];
+    });
 
 export const handleValidate = (
   filePath: string,
@@ -39,12 +59,12 @@ export const handleValidate = (
     ref,
     exists: /^https?:\/\//.test(ref) || existsSync(resolvePath(dirname(filePath), ref)),
   }));
+  const referencedDocs = loadReferencedDocs(filePath, doc.value.charter.references);
+  const base = { referencesStatus, referencedDocs, ast: parsed.value };
   const report = validateCnj(
     doc.value,
     parseMode(mode),
-    isDefined(index) && isDefined(symbolRefs)
-      ? { index, symbolRefs, referencesStatus, ast: parsed.value }
-      : { referencesStatus, ast: parsed.value },
+    isDefined(index) && isDefined(symbolRefs) ? { ...base, index, symbolRefs } : base,
   );
   const effectiveValid = strict === true ? report.violations.length === 0 : report.valid;
   return toContent(JSON.stringify(

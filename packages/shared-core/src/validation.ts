@@ -1,4 +1,4 @@
-import { isDefined, isSome } from '@tsfpp/prelude';
+import { isDefined, isSome, intoMap } from '@tsfpp/prelude';
 import type { EdnNode } from './edn-parser.js';
 import type { CnjDocument, CnjDomainForm } from './cnj-model.js';
 import type { SymbolIndex } from './symbol-index.js';
@@ -20,6 +20,8 @@ export type ValidationOptions = {
   readonly index?: SymbolIndex;
   readonly symbolRefs?: ReadonlyArray<string>;
   readonly referencesStatus?: ReadonlyArray<ReferenceStatus>;
+  /** Parsed `.cnj` files named in the charter's `:references`, for resolving reference keywords. */
+  readonly referencedDocs?: ReadonlyArray<CnjDocument>;
   /** The parsed forms, for rules that read expressions: prelude checks and retired forms. */
   readonly ast?: ReadonlyArray<EdnNode>;
 };
@@ -162,16 +164,26 @@ const siteReference = (site: ReferenceSite): { readonly kind: ReferenceKind; rea
   return site.impliedKind !== undefined ? { kind: site.impliedKind, name: bareName(site.raw) } : undefined;
 };
 
+const projectNames = (docs: ReadonlyArray<CnjDocument>): ReadonlyMap<ReferenceKind, ReadonlyArray<string>> => {
+  const perDoc = docs.map(declaredNames);
+  const kinds = perDoc.flatMap((names) => Array.from(names.keys())).filter((kind, i, all) => all.indexOf(kind) === i);
+  return intoMap(kinds.map((kind) => [kind, perDoc.flatMap((names) => names.get(kind) ?? [])] as const));
+};
+
 /**
- * Check reference keywords (`f/hoist :into`, decision `:supersedes`) against the names this
- * document declares (core.md · Names and references). Unresolved references are warnings:
- * the declaration may live in another file of the workspace.
+ * Check reference keywords (`f/hoist :into`, decision `:supersedes`) against the names declared
+ * in the project (core.md · Names and references): this document and the `.cnj` files its
+ * charter references. Unresolved references are warnings.
  *
  * @param doc - The parsed document.
+ * @param referenced - Parsed `.cnj` files named in the charter's `:references`.
  * @returns Violations for malformed or unresolved references and duplicate decision ids.
  */
-export const checkFormReferences = (doc: CnjDocument): ReadonlyArray<Violation> => {
-  const declared = declaredNames(doc);
+export const checkFormReferences = (
+  doc: CnjDocument,
+  referenced: ReadonlyArray<CnjDocument> = [],
+): ReadonlyArray<Violation> => {
+  const declared = projectNames([doc, ...referenced]);
   const siteViolations = referenceSites(doc).flatMap((site): ReadonlyArray<Violation> => {
     const ref = siteReference(site);
     if (ref === undefined) {
@@ -181,7 +193,7 @@ export const checkFormReferences = (doc: CnjDocument): ReadonlyArray<Violation> 
     const known = declared.get(ref.kind) ?? [];
     return known.includes(ref.name)
       ? []
-      : [mkV({ rule: 'reference-resolves', severity: 'warning', location: site.location, message: `${ref.kind} '${ref.name}' is not declared in this file` })];
+      : [mkV({ rule: 'reference-resolves', severity: 'warning', location: site.location, message: `${ref.kind} '${ref.name}' is not declared in this file or the .cnj files its charter references` })];
   });
   return [...checkDecisionIds(doc), ...siteViolations];
 };
@@ -293,7 +305,7 @@ export const validateCnj = (
     ...checkTargets(doc),
     ...checkAssets(doc),
     ...checkIntentTopology(doc, mode),
-    ...checkFormReferences(doc),
+    ...checkFormReferences(doc, options?.referencedDocs ?? []),
     ...optionalViolations(options),
     ...lintConventions(doc),
   ];
