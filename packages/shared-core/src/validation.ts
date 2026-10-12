@@ -1,10 +1,10 @@
 import { isDefined, isSome, intoMap } from '@tsfpp/prelude';
-import type { EdnNode } from './edn-parser.js';
+import type { EdnNode, EdnList } from './edn-parser.js';
 import type { CnjDocument, CnjDomainForm } from './cnj-model.js';
 import type { SymbolIndex } from './symbol-index.js';
 import { bareName, declaredNames, parseReference, referenceSites } from './references.js';
 import type { ReferenceKind, ReferenceSite } from './references.js';
-import { EMPTY_PRELUDE, preludeHeads } from './prelude.js';
+import { EMPTY_PRELUDE, preludeHeads, semanticHeads } from './prelude.js';
 import type { Prelude } from './prelude.js';
 import { findEnsureSites, unverifiableAtMcp } from './postconditions.js';
 import { lintRetiredForms } from './migration-lint.js';
@@ -229,6 +229,59 @@ export const checkEnsurePrelude = (forms: ReadonlyArray<EdnNode>, prelude: Prelu
   unverifiableAtMcp(findEnsureSites(forms), prelude).map((u) =>
     mkV({ rule: 'ensure-mcp-prelude', severity: 'warning', location: u.owner, message: `:structural ${u.predicate} uses ${u.heads.join(', ')}, outside the prelude: :mcp cannot check it; it is enforced at :llm` }));
 
+const headName = (node: EdnNode): string => {
+  const head = node.type === 'list' ? node.elements[0] : undefined;
+  return head !== undefined && head.type === 'symbol' ? head.value : '';
+};
+
+/** Every list form in the tree whose head is `name`, at any depth. */
+const formsHeaded = (nodes: ReadonlyArray<EdnNode>, name: string): ReadonlyArray<EdnList> =>
+  nodes.flatMap((n): ReadonlyArray<EdnList> => {
+    if (n.type === 'map') return formsHeaded(Array.from(n.entries.values()), name);
+    if (n.type !== 'list') return [];
+    const inner = formsHeaded(n.elements, name);
+    return headName(n) === name && n.delimiter === undefined ? [n, ...inner] : inner;
+  });
+
+const formName = (form: EdnList): string => {
+  const n = form.elements[1];
+  return n !== undefined && n.type === 'symbol' ? n.value : '';
+};
+
+const paramNames = (form: EdnList): ReadonlyArray<string> => {
+  const params = form.elements[2];
+  return params !== undefined && params.type === 'list'
+    ? params.elements.flatMap((e) => (e.type === 'symbol' && e.value !== '&' ? [e.value] : []))
+    : [];
+};
+
+const expandsTo = (form: EdnList): EdnNode | undefined => {
+  const i = form.elements.findIndex((e) => e.type === 'keyword' && e.value === ':expands-to');
+  return i < 0 ? undefined : form.elements[i + 1];
+};
+
+/**
+ * An incantation's `:expands-to` may use prelude forms, its parameters and registered spells,
+ * and nothing else (core.md · incantation; The prelude). A warning, not an error: spells
+ * registered in another file or a practitioner grimoire are not visible from one document.
+ *
+ * @param forms - Parsed top-level forms.
+ * @param prelude - The prelude of the spec in use.
+ * @returns One warning per head outside the prelude, the parameters and this file's spells.
+ */
+export const checkIncantationPrelude = (forms: ReadonlyArray<EdnNode>, prelude: Prelude): ReadonlyArray<Violation> => {
+  const spells = formsHeaded(forms, 'spell').map(formName).filter((n) => n.length > 0);
+  return formsHeaded(forms, 'incantation').flatMap((form) => {
+    const body = expandsTo(form);
+    if (body === undefined) return [];
+    const allowed = [...paramNames(form), ...spells];
+    const name = formName(form);
+    return semanticHeads(body, prelude)
+      .filter((h) => !allowed.includes(h))
+      .map((h) => mkV({ rule: 'incantation-expands-to-prelude', severity: 'warning', location: `incantation:${name.length > 0 ? name : '(unnamed)'}`, message: `:expands-to uses ${h}, which is neither a prelude form, a parameter nor a spell registered in this file` }));
+  });
+};
+
 export const lintConventions = (doc: CnjDocument): ReadonlyArray<Violation> => [
   ...checkDecisionsConventions(doc),
   ...checkDecisionsOrder(doc),
@@ -254,6 +307,9 @@ export const VALIDATION_RULE_DESCRIPTIONS: Readonly<Record<string, ReadonlyArray
   ensure: [
     ':structural predicates verified via :mcp are written in the prelude (ensure-mcp-prelude)',
   ],
+  incantation: [
+    ':expands-to uses only prelude forms, its parameters and registered spells (incantation-expands-to-prelude)',
+  ],
   retired: [
     'forms retired in October 2026 are flagged with their replacement (deprecated-*)',
   ],
@@ -277,7 +333,10 @@ const indexViolations = (options: ValidationOptions | undefined): ReadonlyArray<
   const index = options?.index;
   if (index === undefined) return [];
   const symbolViolations = isDefined(options?.symbolRefs) ? checkSymbolUsage(options.symbolRefs, index) : [];
-  const preludeViolations = isDefined(index.prelude) ? checkEnsurePrelude(options?.ast ?? [], index.prelude) : [];
+  const ast = options?.ast ?? [];
+  const preludeViolations = isDefined(index.prelude)
+    ? [...checkEnsurePrelude(ast, index.prelude), ...checkIncantationPrelude(ast, index.prelude)]
+    : [];
   return [...symbolViolations, ...preludeViolations];
 };
 

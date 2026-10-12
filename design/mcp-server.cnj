@@ -358,7 +358,16 @@
      :date     "2026-10-12"
      :decision "The EDN parser records whether a list was written as a vector or a set (#{}),
                 so a vector is never mistaken for a call. A bare | is rejected with a message
-                pointing to (one-of ...): the bar is signature notation only."}]
+                pointing to (one-of ...): the bar is signature notation only."}
+    {:id       :incantation-prelude
+     :date     "2026-10-12"
+     :decision "validate_cnj warns (incantation-expands-to-prelude) when an incantation's
+                :expands-to uses a head that is neither a prelude form, one of its parameters
+                nor a spell registered in the same file (core.md · incantation; The prelude).
+                A warning, not an error: spells from another file or a practitioner grimoire
+                are not visible from one document. Built on prelude.ts semanticHeads. The
+                parser also reads ratios (1/5) as their quotient and accepts & as a symbol, so
+                the canonical spell signature [entity & {:keys [...]}] parses."}]
   :open []
   :decided [
     "conjurer://grimoire/<name> MCP resources: yes (2026-06-09 decision above)."]

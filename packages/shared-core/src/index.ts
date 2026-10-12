@@ -39,7 +39,7 @@ export type {
   ValidationReport,
 } from './validation.js';
 export {
-  validateCnj, checkSymbolUsage, checkReferences, checkFormReferences, checkEnsurePrelude, lintConventions,
+  validateCnj, checkSymbolUsage, checkReferences, checkFormReferences, checkEnsurePrelude, checkIncantationPrelude, lintConventions,
   VALIDATION_RULE_DESCRIPTIONS,
 } from './validation.js';
 export { buildIndex } from './symbol-index.js';
