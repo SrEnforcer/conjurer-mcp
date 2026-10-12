@@ -45,18 +45,21 @@
                 core preflight-resolver via core-bridge. If MCP transport parity
                 is added later, server materialise_preflight remains a thin wrapper
                 over the same resolver and report shape."}
-    {:date "2026-06-10"
+    {:id :validate-on-save-2026-06-10
+     :date "2026-06-10"
      :decision "validate-on-save: validate the active .cnj on every save via
                 onDidSaveTextDocument; violations surface as squiggles and Problems
                 panel entries via vscode.DiagnosticCollection. No debounce needed
                 at the save event boundary. Resolves :open question."}
-    {:date "2026-06-10"
+    {:id :codelens-candidate-score-2026-06-10
+     :date "2026-06-10"
      :decision "codelens-candidate-score: emit a 'score: N · status' CodeLens on
                 every f/candidate opening line. Format chosen: 'score: 33 · planned'.
                 Clicking the lens shows an information message with id, score, and status
                 via conjurer.showCandidateDetails command. Parsing is lazy — toCnjModel
                 is only called when at least one f/candidate line is found in the file."}
-    {:date "2026-06-10"
+    {:id :foresight-health-statusbar-2026-06-10
+     :date "2026-06-10"
      :decision "foresight-health-statusbar: trigger on onDidChangeActiveTextEditor
                 (file-open). No FileSystemWatcher needed for v1 — status reflects the
                 saved state of the workspace at the point the file is opened. Clicking
@@ -67,21 +70,25 @@
                 is required at the extension package root for vsce to accept the build without warnings.
                 Publisher remains 'conjurer' for local VSIX installs; Marketplace publication deferred
                 (resolves the :open question — local-only for v1)."}
-    {:date "2026-06-12"
+    {:id :candidate-lifecycle-gutter-2026-06-12
+     :date "2026-06-12"
      :decision "candidate-lifecycle-gutter: inline SVG data-URI circles in the gutter per f/candidate
                 opening line (orange=:proposed, blue=:planned, green=:hoisted, grey=:abandoned).
                 Icon representation decided as inline SVG via vscode.Uri.parse(data:...) — no asset
                 files required. New providers/candidate-gutter.ts, registered on onDidChangeActiveTextEditor
                 and onDidSaveTextDocument."}
-    {:date "2026-06-12"
+    {:id :charter-ref-lens-2026-06-12
+     :date "2026-06-12"
      :decision "charter-ref-lens: a CodeLens on the charter line showing 'N/N refs resolved' (green) or
                 'X broken reference(s)' (amber). Zero-references case: show nothing — suppress the lens
                 entirely for single-file projects. Implemented inline in providers/codelens.ts."}
-    {:date "2026-06-12"
+    {:id :disk-lint-decorations-2026-06-12
+     :date "2026-06-12"
      :decision "disk-lint-decorations: gutter ✓/✗ decoration per target block indicating whether all
                 declared :modules exist on disk. Update cadence: on-save with 500 ms debounce via
                 onDidSaveTextDocument. New providers/disk-lint.ts, registered in extension.ts."}
-    {:date "2026-06-12"
+    {:id :codelens-candidate-actions-2026-06-12
+     :date "2026-06-12"
      :decision "codelens-candidate-actions: Reassess (📊) and Hoist (⬆) buttons on f/candidate CodeLens.
                 Reassess available for :proposed and :planned; Hoist appears only when :planned and
                 score ≥ 28. f/reassess insertion contract: standalone block appended after the closing
@@ -385,7 +392,7 @@
 
 (f/hoist :of :validate-on-save
   :date     "2026-06-10"
-  :into     :charter-decision/validate-on-save-2026-06-10
+  :into     :decision/validate-on-save-2026-06-10
   :outcomes [:on-save-diagnostics :open-question-resolved :squiggles-in-problems-panel]
   :note     "Already present in commands/validate.ts (onDidSaveTextDocument listener)
              before this session. Resolves the :open question about live vs on-demand
@@ -393,14 +400,14 @@
 
 (f/hoist :of :codelens-candidate-score
   :date     "2026-06-10"
-  :into     :charter-decision/codelens-candidate-score-2026-06-10
+  :into     :decision/codelens-candidate-score-2026-06-10
   :outcomes [:candidate-score-badge :showCandidateDetails-command :findCandidateOccurrences-export]
   :note     "Condition met: format decided as 'score: N · status'. Lazy parse — toCnjModel
              called only when f/candidate lines are detected. Tests added to codelens.spec.ts.")
 
 (f/hoist :of :foresight-health-statusbar
   :date     "2026-06-10"
-  :into     :charter-decision/foresight-health-statusbar-2026-06-10
+  :into     :decision/foresight-health-statusbar-2026-06-10
   :outcomes [:status-bar-item :showForesightHealth-command :computeHealthIssues-export :status-bar-spec]
   :note     "Condition met: trigger decided as onDidChangeActiveTextEditor (file-open only).
              computeHealthIssues is pure over WorkspaceSnapshot — fully unit-testable without
@@ -410,28 +417,28 @@
 
 (f/hoist :of :candidate-lifecycle-gutter
   :date     "2026-06-12"
-  :into     :charter-decision/candidate-lifecycle-gutter-2026-06-12
+  :into     :decision/candidate-lifecycle-gutter-2026-06-12
   :outcomes [:gutter-decoration-types :candidate-gutter-provider :registered-on-save-and-open]
   :note     "Condition met: icon representation decided as inline SVG data URIs — no SVG file assets
              required. providers/candidate-gutter.ts added.")
 
 (f/hoist :of :charter-ref-lens
   :date     "2026-06-12"
-  :into     :charter-decision/charter-ref-lens-2026-06-12
+  :into     :decision/charter-ref-lens-2026-06-12
   :outcomes [:ref-health-codelens :zero-refs-suppressed]
   :note     "Condition met: zero-references case decided as suppress entirely. Implemented inline
              in providers/codelens.ts alongside charter lenses.")
 
 (f/hoist :of :disk-lint-decorations
   :date     "2026-06-12"
-  :into     :charter-decision/disk-lint-decorations-2026-06-12
+  :into     :decision/disk-lint-decorations-2026-06-12
   :outcomes [:disk-lint-provider :on-save-debounce :target-gutter-decorations]
   :note     "Condition met: cadence decided as on-save with 500 ms debounce. providers/disk-lint.ts
              added. lint_disk_consistency suffix-matching already confirmed stable.")
 
 (f/hoist :of :codelens-candidate-actions
   :date     "2026-06-12"
-  :into     :charter-decision/codelens-candidate-actions-2026-06-12
+  :into     :decision/codelens-candidate-actions-2026-06-12
   :outcomes [:reassess-codelens :hoist-codelens :reassess-command :hoist-command :commands-reassess-module]
   :note     "Both conditions met: codelens-candidate-score already hoisted; f/reassess insertion
              contract decided as standalone block after closing paren. commands/reassess.ts added.")

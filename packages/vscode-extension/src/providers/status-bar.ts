@@ -1,7 +1,6 @@
-/* eslint-disable functional/prefer-readonly-type -- DEVIATION(2.2): SDK interop surfaces mutable shape annotations. */
 /* eslint-disable functional/immutable-data -- DEVIATION(2.3): status bar item properties are mutated in place; VS Code StatusBarItem has no immutable update API. */
 import * as vscode from 'vscode';
-import { buildWorkspaceSnapshot } from '@conjurer/core';
+import { buildWorkspaceSnapshot, computeForesightHealth, todayISO } from '@conjurer/core';
 import type { WorkspaceSnapshot, CnjCandidateForm, CnjHoist } from '@conjurer/core';
 import { isErr } from '@tsfpp/prelude';
 
@@ -14,70 +13,26 @@ export type HealthIssue = {
   readonly detail: string;
 };
 
-const ACTIVE_STATUSES = new Set(['proposed', 'planned']);
-const STALE_DAYS = 30;
-const MIN_RATIONALE_LENGTH = 20;
-const HIGH_SCORE_THRESHOLD = 30;
+const HEALTH_THRESHOLDS = { staleDays: 30, minRationaleLength: 20, highScoreThreshold: 30 } as const;
 
-const totalScore = (c: CnjCandidateForm): number =>
-  Array.from(c.scores.values()).reduce((a, b) => a + b, 0);
-
-const todayISO = (): string => new Date().toISOString().slice(0, 10);
-
-const daysBetween = (from: string, to: string): number => {
-  const a = new Date(from).getTime();
-  const b = new Date(to).getTime();
-  if (isNaN(a) || isNaN(b)) return 0;
-  return Math.max(0, Math.floor((b - a) / (1000 * 60 * 60 * 24)));
-};
-
-export const computeHealthIssues = (snapshot: WorkspaceSnapshot): ReadonlyArray<HealthIssue> => {
-  const today = todayISO();
-  const allCandidates: ReadonlyArray<CnjCandidateForm> = Array.from(snapshot.files.values())
-    .flatMap((e) => e.doc.candidates);
-  const allHoists: ReadonlyArray<CnjHoist> = Array.from(snapshot.files.values())
-    .flatMap((e) => e.doc.hoists);
-  const activeCandidates = allCandidates.filter((c) => ACTIVE_STATUSES.has(c.status));
-  // eslint-disable-next-line no-restricted-syntax
-  const candidateIds = new Set(allCandidates.map((c) => c.id));
-
-  const stale: ReadonlyArray<HealthIssue> = activeCandidates
-    .filter((c) => c.history.length === 0 && daysBetween(c.added, today) > STALE_DAYS)
-    .map((c) => ({
-      kind: 'stale' as const,
-      id: c.id,
-      label: c.label,
-      detail: `${daysBetween(c.added, today)}d old, no reassessment`,
-    }));
-
-  const thin: ReadonlyArray<HealthIssue> = activeCandidates
-    .filter((c) => c.rationale.length < MIN_RATIONALE_LENGTH)
-    .map((c) => ({
-      kind: 'thin_rationale' as const,
-      id: c.id,
-      label: c.label,
-      detail: `rationale ${c.rationale.length} chars < ${MIN_RATIONALE_LENGTH}`,
-    }));
-
-  const orphans: ReadonlyArray<HealthIssue> = allHoists
-    .filter((h) => !candidateIds.has(h.of))
-    .map((h) => ({
-      kind: 'orphaned_hoist' as const,
-      id: h.of,
-      label: `hoist for ${h.of}`,
-      detail: 'no matching f/candidate',
-    }));
-
-  const highScore: ReadonlyArray<HealthIssue> = activeCandidates
-    .filter((c) => totalScore(c) >= HIGH_SCORE_THRESHOLD && c.conditions.length === 0)
-    .map((c) => ({
-      kind: 'high_score_no_conditions' as const,
-      id: c.id,
-      label: c.label,
-      detail: `score ${totalScore(c)}, no conditions`,
-    }));
-
-  return [...stale, ...thin, ...orphans, ...highScore];
+/**
+ * Flatten the shared foresight health check into status-bar issues.
+ *
+ * @param snapshot - Workspace snapshot to check.
+ * @param today - Reference date `YYYY-MM-DD`; defaults to the current date.
+ * @returns One issue per diagnostic, in the order stale, thin, orphaned, high-score.
+ */
+export const computeHealthIssues = (snapshot: WorkspaceSnapshot, today: string = todayISO()): ReadonlyArray<HealthIssue> => {
+  const entries = Array.from(snapshot.files.values());
+  const candidates: ReadonlyArray<CnjCandidateForm> = entries.flatMap((e) => e.doc.candidates);
+  const hoists: ReadonlyArray<CnjHoist> = entries.flatMap((e) => e.doc.hoists);
+  const report = computeForesightHealth(candidates, hoists, { ...HEALTH_THRESHOLDS, today });
+  return [
+    ...report.stale_candidates.map((s) => ({ kind: 'stale' as const, id: s.id, label: s.label, detail: `${s.days_since_added}d old, no reassessment` })),
+    ...report.thin_rationale.map((s) => ({ kind: 'thin_rationale' as const, id: s.id, label: s.label, detail: `rationale ${s.rationale_length} chars < ${HEALTH_THRESHOLDS.minRationaleLength}` })),
+    ...report.orphaned_hoists.map((s) => ({ kind: 'orphaned_hoist' as const, id: s.of, label: `hoist for ${s.of}`, detail: 'no matching f/candidate' })),
+    ...report.high_score_no_conditions.map((s) => ({ kind: 'high_score_no_conditions' as const, id: s.id, label: s.label, detail: `score ${s.total_score}, no conditions` })),
+  ];
 };
 
 export const registerForesightStatusBar = (ctx: vscode.ExtensionContext): void => {

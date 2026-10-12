@@ -245,7 +245,8 @@
                 f/hoist forms. Both use kvMap(elems, 1) + getStr(kv, 'of') since
                 ':of IDENTIFIER' is syntactic positioning, not a positional argument.
                 Both types exported from @conjurer/core. 14 new tests (cnj-model.spec.ts)."}
-    {:date "2026-06-10"
+    {:id :lens-hoist-readiness-2026-06-10
+     :date "2026-06-10"
      :decision "lens_hoist_readiness added as a foresight-cluster tool (Cluster-F).
                 Pure fold over workspace candidates filtered to active statuses
                 (proposed/planned) with total score >= min_score (default 28). Returns
@@ -255,7 +256,8 @@
                 candidates_with_reassessment). Implements the foresight→r/decide handoff
                 explicitly: the agent gets structure without the server claiming to know
                 if conditions are met. Handler in tools/foresight.ts. 416/416 tests pass."}
-    {:date "2026-06-10"
+    {:id :diff-candidates-2026-06-10
+     :date "2026-06-10"
      :decision "diff_candidates added as a Cluster-B tool (alongside diff_cnj in
                 tools/diff.ts). Semantic backlog diff between two .cnj snapshots keyed
                 by stable :id. Returns: added (in B not A), removed (in A not B and
@@ -265,7 +267,8 @@
                 distinguishes graduation from removal — a candidate that became a
                 decision is structurally different from one that was dropped.
                 summary.graduation_count surfaces the count explicitly. 416/416 tests pass."}
-    {:date "2026-06-10"
+    {:id :lint-disk-consistency-2026-06-10
+     :date "2026-06-10"
      :decision "lint_disk_consistency implemented as a new Cluster-C tool (planned status resolved).
                 Pure I/O check: for each target's :modules entries, search the filesystem under
                 a configurable root (default: dirname of the .cnj path) for a file matching the
@@ -290,7 +293,72 @@
                     defaults. Returns consistent bool, issue_count, one list per check, totals.
                 CnjReassessment and CnjHoist model types were prerequisites — both already landed
                 (2026-06-10 model decisions). Backlog has 12 candidates, satisfying the ≥8 condition.
-                Implemented in tools/foresight.ts alongside list_candidates and lens_hoist_readiness."}]
+                Implemented in tools/foresight.ts alongside list_candidates and lens_hoist_readiness."}
+    {:id       :spec-read-live
+     :date     "2026-10-12"
+     :decision "The server reads the Conjurer specification live before any installed copy.
+                resolveSpecPath tries, in order: CONJURER_SPEC_PATH when it holds an index.edn;
+                a sibling checkout named conjurer-spec or conjurer beside the monorepo; the
+                installed conjurer-spec package. A spec edit is visible on the next tool call
+                without reinstalling."}
+    {:id       :topology-follows-spec
+     :date     "2026-10-12"
+     :decision "Intent topology checks follow the specification's semantics (open question
+                Q-12). The 2026-06-09 rules (a)–(c) read :manifest as the list of things a
+                form must manifest; in the spec :manifest binds the names of a form's
+                outputs, so rule (a) flagged correct files. Those rules are replaced by:
+                intent-topology-forbids (an item both :requires and :forbids) and
+                intent-topology-conflict (an item both :requires and :deferred), errors in
+                :authored mode and warnings in :recovered mode; intent-topology-prefers-forbids
+                (an item both :prefers and :forbids), always a warning. The 2026-06-09 entry
+                carries no :id, so it is named here in prose rather than by :supersedes."}
+    {:id       :names-and-references
+     :date     "2026-10-12"
+     :decision "A symbol and a keyword name the same thing, and reference keywords are
+                namespaced by kind: :decision/, :target/, :asset/, :spell/, :shape/,
+                :candidate/, :core/ (core.md · Names and references). The legacy prefix
+                :charter-decision/ is still read as a decision and draws a migration warning.
+                New module references.ts parses references and collects declared names.
+                validate_cnj adds decision-id-unique (error) and reference-resolves /
+                reference-kind (warnings) over f/hoist :into and decision :supersedes.
+                A reference resolves against the project: the file itself and the .cnj
+                files its charter :references name.
+                A target's :from resolves against every binding — def, :manifest name or
+                target — across the workspace (Q-14); target edges hold only target
+                dependencies, binding dependencies are reported separately."}
+    {:id       :candidate-status-from-history
+     :date     "2026-10-12"
+     :decision "A candidate's current status is derived, never edited: hoisted when an
+                f/hoist names it, otherwise the latest :status in its history (inline and
+                standalone f/reassess, ordered by date), otherwise the authored :status,
+                which the model keeps as authoredStatus. The health checks move to the
+                shared module foresight-health.ts so the server and the editor extension
+                compute the same report. The reference date is a parameter (todayISO is read
+                at the I/O edge only), which removes the date-dependent tests. tools/foresight.ts
+                drops from 455 to about 320 lines."}
+    {:id       :prelude-and-postconditions
+     :date     "2026-10-12"
+     :decision "The prelude in index.edn (2.0.0) is the closed list of forms a deterministic
+                processor may evaluate; every other head is a semantic function. New module
+                prelude.ts parses it and evaluates prelude expressions (literals, units,
+                comparisons, membership, logic, keyword lookup, str). New module
+                postconditions.ts finds ensure forms and checks their :structural predicates
+                against supplied values. New tool check_postconditions exposes this.
+                validate_cnj warns (ensure-mcp-prelude) when an ensure claims :verify-via
+                :mcp for a predicate that uses a semantic function, because the MCP layer
+                cannot honour that claim. Symbol coverage ignores prelude heads."}
+    {:id       :retired-form-warnings
+     :date     "2026-10-12"
+     :decision "validate_cnj warns about forms the specification retired in October 2026,
+                naming the current form: map-shaped branch :cases and ward :recover (now
+                ordered vectors), :escalate :when, :deepen :by, :confidence :grade-each,
+                a/define :style {:confidence}, (context establish ...) and the
+                :charter-decision/ prefix. Warnings only; module migration-lint.ts."}
+    {:id       :parser-collections
+     :date     "2026-10-12"
+     :decision "The EDN parser records whether a list was written as a vector or a set (#{}),
+                so a vector is never mistaken for a call. A bare | is rejected with a message
+                pointing to (one-of ...): the bar is signature notation only."}]
   :open []
   :decided [
     "conjurer://grimoire/<name> MCP resources: yes (2026-06-09 decision above)."]
@@ -511,19 +579,22 @@
                 "decisions log is append-only-shaped (each entry has :date :decision)"
                 "referenced symbols exist in index.edn"
                 "every :references target resolves to a readable file"
-                "intent topology (on forms that carry :requires/:prefers/:deferred/:manifest):
-                 (a) every :requires item appears in :manifest,
-                 (b) no :deferred item appears in :manifest,
-                 (c) no item is both :requires and :deferred"]
+                "intent topology (on forms that carry :requires/:prefers/:deferred/:forbids):
+                 no item is both :requires and :forbids, no item is both :requires and
+                 :deferred, and (warning) no item is both :prefers and :forbids.
+                 :manifest binds output names and is not part of the topology"
+                "decision ids are unique; f/hoist :into and :supersedes resolve to a
+                 declared form of the right kind, in this file or a .cnj file its
+                 charter :references name"
+                "an ensure that claims :verify-via :mcp uses only prelude forms"
+                "retired forms draw a migration warning naming the current form"]
   :mode-note   ":recovered relaxes the rules for a .cnj produced by an exhume
                 workflow: :recovered-marked decisions are valid, a 0.0.0-recovered
                 version is expected (not an error), and speculative intent appearing
                 as :open questions rather than decisions is correct, not a gap.
                 :authored applies the full strictness for a hand-written .cnj.
-                Intent topology rules (b) and (c) are relaxed in :recovered mode
-                since a recovered .cnj may not yet have a fully-specified :manifest.
-                Rule (a) — :requires must be in :manifest — is enforced in both
-                modes because a missing required item is unambiguously a gap.
+                The two topology conflicts are errors in :authored mode and warnings
+                in :recovered mode, since recovered intent may be incomplete.
                 Note: this mode is for validating OTHER recovered codebases after
                 the server is built — it plays no part in this project's own
                 tool-less bootstrap."
@@ -796,17 +867,47 @@
                          :total_candidates_scanned    :number
                          :total_hoists_scanned        :number
                          :total_files_scanned         :number}}
-  :backed-by   [:cnj-model :workspace-state]
+  :backed-by   [:foresight-health :cnj-model :workspace-state]
   :determinism :pure
   :token-note  "All five checks are pure arithmetic and string operations over the model.
                 The agent gets the backlog health picture in one call without spec lookups.
-                Thresholds are tunable but the defaults encode the grimoire's own guidance.")
+                Thresholds are tunable but the defaults encode the grimoire's own guidance.
+                Status is the current status (decision :candidate-status-from-history).")
+
+;;; ── Postconditions ──
+
+(spell check-postconditions
+  :tool-name   "check_postconditions"
+  :purpose     "Check the :structural predicates of ensure forms against a proposed
+                artefact's values — the :mcp layer of core.md · ensure, honoured only
+                for predicates written in the prelude"
+  :accepts     {:edn    "optional string — inline EDN with one or more ensure forms"
+                :file   "optional string — path to a .cnj file (one of :edn or :file)"
+                :form   "optional string — with :file, the top-level form whose ensure to check"
+                :values "map — the artefact's fields by the names the predicates use;
+                         \":kw\" strings are keywords, {unit, magnitude} is a quantity"}
+  :returns     {:format :structured
+                :shape  {:prelude_available :boolean
+                         :ensure_forms      :number
+                         :holds             :boolean
+                         :summary           {:status :number}
+                         :results           [{:owner :string :line :number
+                                              :verify_via [:string] :mcp_claimed :boolean
+                                              :outcomes [{:predicate :string
+                                                          :status (one-of :pass :fail :semantic :unbound :error)
+                                                          :detail :string}]}]}}
+  :backed-by   [:prelude :postconditions :symbol-index]
+  :determinism :pure
+  :never       ["evaluate a semantic function — it is reported as :semantic and left
+                 to the :llm layer"]
+  :token-note  "The agent learns which postconditions hold without re-deriving them, and
+                which ones the server cannot check, in one structured answer.")
 
 ;;; ─────────────────────────────────────────────────────────────────
 ;;; Section VI — Module decomposition (TSF++: every module ≤ 400 lines)
 ;;; ─────────────────────────────────────────────────────────────────
 
-;;; @conjurer/core — the shared package. Five single-responsibility modules.
+;;; @conjurer/core — the shared package. Single-responsibility modules.
 
 (target :shared-core
   :language  :typescript
@@ -841,7 +942,8 @@
                       list. Supports :authored and :recovered modes (the latter
                       tolerates exhume-recovered .cnj shapes). No I/O — takes a
                       model, returns a report."
-     :exports ["validateCnj" "ValidationRule" "Violation" "ValidationMode"]
+     :exports ["validateCnj" "ValidationRule" "Violation" "ValidationMode"
+               "checkFormReferences" "checkEnsurePrelude"]
      :est-lines 320}
     {:module "preflight-resolver.ts"
      :responsibility "Deterministic folder preflight for materialisation:
@@ -865,7 +967,37 @@
      :responsibility "Shared type definitions exported at the package boundary
                       (SymbolRecord, GrimoireRef, ToolResult shapes)."
      :exports ["SymbolRecord" "GrimoireRef" "ToolResult"]
-     :est-lines 140}])
+     :est-lines 140}
+    {:module "references.ts"
+     :responsibility "Names and reference keywords (core.md · Names and references):
+                      parse :kind/name references (legacy :charter-decision/ read as a
+                      decision), reduce names to bare names, collect a document's declared
+                      names by kind and its bindings (def, :manifest, targets)."
+     :exports ["parseReference" "bareName" "declaredNames" "bindingNames" "referenceSites"]
+     :est-lines 140}
+    {:module "foresight-health.ts"
+     :responsibility "Backlog diagnostics shared by the server and the editor extension:
+                      stale and thinly argued candidates, orphaned hoists, high scores
+                      without conditions, lifecycle distribution. The reference date is a
+                      parameter; todayISO reads the clock at the I/O edge."
+     :exports ["computeForesightHealth" "candidateTotal" "todayISO" "daysBetween"]
+     :est-lines 130}
+    {:module "prelude.ts"
+     :responsibility "Parse the :prelude of index.edn and evaluate prelude expressions
+                      deterministically; report semantic heads instead of guessing."
+     :exports ["parsePrelude" "evaluate" "semanticHeads" "isPreludeExpr" "Prelude"]
+     :est-lines 280}
+    {:module "postconditions.ts"
+     :responsibility "Find ensure forms at any depth and check their :structural
+                      predicates against supplied values; flag :mcp claims the
+                      prelude cannot honour."
+     :exports ["findEnsureSites" "checkPredicate" "unverifiableAtMcp" "fromJson" "printEdn"]
+     :est-lines 180}
+    {:module "migration-lint.ts"
+     :responsibility "Warnings for forms retired by the October 2026 specification,
+                      each naming the current form."
+     :exports ["lintRetiredForms"]
+     :est-lines 110}])
 
 ;;; The server package — thin MCP wiring over the core. One module per concern.
 
@@ -933,7 +1065,12 @@
                       gaps, lifecycle distribution). Pure fold over CnjDocument.candidates and
                       CnjDocument.hoists; no spec lookup."
      :exports ["registerForesightTools" "handleListCandidates" "handleHoistReadiness" "handleForesightHealth"]
-     :est-lines 295}
+     :est-lines 320}
+    {:module "tools/postconditions.ts"
+     :responsibility "Register and handle check_postconditions; delegate to
+                      postconditions and the prelude parsed from the symbol index."
+     :exports ["registerPostconditionTools" "handleCheckPostconditions"]
+     :est-lines 120}
     {:module "resources.ts"
      :responsibility "Register MCP protocol resources: list all grimoire names
                       and read one grimoire file by name as a
@@ -947,6 +1084,5 @@
      :exports ["log" "logError"]
      :est-lines 80}])
 
-;;; Module sizes (actual): retrieval.ts ~320, lenses.ts ~200, project.ts ~220,
-;;; diff.ts 252, foresight.ts ~295, parse.ts ~138, validate.ts ~145.
-;;; All within the 400-line soft ceiling; no deviation required.
+;;; Module sizes are checked against the 400-line soft ceiling at each change
+;;; (largest on 2026-10-12: cnj-model.ts 383); no deviation required.

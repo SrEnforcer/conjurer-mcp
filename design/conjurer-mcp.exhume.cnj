@@ -47,7 +47,7 @@
   :from [:types :functions :schemas :tests :api-surface]
   :recover [:entities :relationships :operations :invariants :vocabulary]
   :focus ["src/index/server-runtime.ts" "src/services" "src/http-bridge.ts"]
-  :confidence :grade-each
+  :grade :each
   :emit :d-explore-compatible
   :manifest conjurer-mcp-model)
 
@@ -82,7 +82,7 @@
 (x/reconstruct-decisions "../conjurer-mcp"
   :from [:git-history :comments :structure :code-shape :dependencies]
   :recover [:what :why :alternatives-rejected :when]
-  :confidence :grade-each
+  :grade :each
   :emit :charter-decisions
   :manifest conjurer-mcp-decisions)
 

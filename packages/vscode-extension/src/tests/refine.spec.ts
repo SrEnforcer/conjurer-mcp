@@ -172,6 +172,7 @@ const makeCandidate = ({
   label: id,
   cluster,
   status,
+  authoredStatus: status,
   scores: intoMap(Object.entries(scores)),
   rationale,
   conditions: [],

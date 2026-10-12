@@ -39,15 +39,17 @@ describe('computeHoistFoldRanges', () => {
 });
 
 describe('computeHoistFoldRanges with multiple forms', () => {
+  // :foo is named by the first f/hoist, so its candidate folds as well (range 0).
   it('stops a hoist range when the next top-level form begins', () => {
     const ranges = computeHoistFoldRanges(MULTI_HOIST);
-    expect(ranges[0]).toEqual({ start: 2, end: 5 });
+    expect(ranges[1]).toEqual({ start: 2, end: 5 });
   });
 
   it('detects consecutive f/hoist forms as separate ranges', () => {
     const ranges = computeHoistFoldRanges(MULTI_HOIST);
-    expect(ranges).toHaveLength(2);
-    expect(ranges[1]).toEqual({ start: 6, end: 9 });
+    expect(ranges).toHaveLength(3);
+    expect(ranges[0]).toEqual({ start: 0, end: 1 });
+    expect(ranges[2]).toEqual({ start: 6, end: 9 });
   });
 
   it('does not fold f/candidate with :status :proposed', () => {
@@ -161,5 +163,19 @@ describe('computeDecisionFoldRanges multi-form handling', () => {
     expect(ranges).toHaveLength(2);
     expect(ranges[0]).toEqual({ start: 1, end: 3 });
     expect(ranges[1]).toEqual({ start: 5, end: 7 });
+  });
+});
+
+describe('computeHoistFoldRanges — hoisted by f/hoist', () => {
+  it('folds a candidate that an f/hoist names, though its own :status was never edited', () => {
+    const lines = [
+      '(f/candidate :diff-intent',
+      '  :status :proposed',
+      '  :rationale "drift detection")',
+      '(f/candidate :salvage',
+      '  :status :proposed)',
+      '(f/hoist :of :diff-intent :date "2026-11-20" :into :decision/x-diff-intent-accepted)',
+    ];
+    expect(computeHoistFoldRanges(lines)).toEqual([{ start: 0, end: 2 }, { start: 5, end: 5 }]);
   });
 });

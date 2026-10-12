@@ -25,6 +25,16 @@ const badDepDoc = [
   '(target consumer :language "TypeScript" :from does-not-exist)',
 ].join('\n');
 
+// Q-14: a target built :from a d/model binding, a def, or a target written as a keyword.
+const bindingDoc = [
+  '(charter "Bindings" :version "0.1.0" :goals ["g"])',
+  '(d/model "Subscription" :entities {:subscription {:type :aggregate-root}} :manifest subscription-model)',
+  '(def billing-rules (r/rules :billing :rules []))',
+  '(target :domain-lib :language :typescript :from subscription-model)',
+  '(target :rules-lib :language :typescript :from billing-rules)',
+  '(target :api :language :typescript :from :target/domain-lib)',
+].join('\n');
+
 const virtualFs: VirtualFs = {
   dirs: intoMap([
     ['/vfs', ['single', 'multi', 'missing', 'empty']],
@@ -32,6 +42,7 @@ const virtualFs: VirtualFs = {
     ['/vfs/multi', ['anchor.cnj', 'server.cnj']],
     ['/vfs/missing', ['bad.cnj']],
     ['/vfs/empty', []],
+    ['/vfs/bindings', ['project.cnj']],
     ['/vfs/packages/shared-core/src', []],
   ]),
   files: intoMap([
@@ -39,6 +50,7 @@ const virtualFs: VirtualFs = {
     ['/vfs/multi/anchor.cnj', anchorDoc],
     ['/vfs/multi/server.cnj', serverDoc],
     ['/vfs/missing/bad.cnj', badDepDoc],
+    ['/vfs/bindings/project.cnj', bindingDoc],
   ]),
 };
 
@@ -133,5 +145,24 @@ describe('runMaterialisePreflight — entryFiles override', () => {
     expect(isOk(r)).toBe(true);
     if (!isOk(r)) return;
     expect(r.value.ready).toBe(true);
+  });
+});
+
+describe('runMaterialisePreflight — :from resolves to targets and bindings (Q-14)', () => {
+  it('resolves :from to a :manifest binding, a def and a keyword target reference', () => {
+    const r = runMaterialisePreflight('/vfs/bindings');
+    expect(isOk(r)).toBe(true);
+    if (!isOk(r)) return;
+    expect(r.value.unresolvedRefs).toHaveLength(0);
+    expect(r.value.resolvedRefs.map((ref) => ref.to).sort()).toEqual(['billing-rules', 'domain-lib', 'subscription-model']);
+    expect(r.value.ready).toBe(true);
+  });
+
+  it('still reports a :from that names nothing declared', () => {
+    const r = runMaterialisePreflight('/vfs/missing');
+    expect(isOk(r)).toBe(true);
+    if (!isOk(r)) return;
+    expect(r.value.unresolvedRefs.map((u) => u.target)).toEqual(['does-not-exist']);
+    expect(r.value.unresolvedRefs[0]?.reason).toContain('neither a declared target nor a binding');
   });
 });

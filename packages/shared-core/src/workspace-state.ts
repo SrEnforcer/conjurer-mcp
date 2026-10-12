@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
-import { ok, err, isErr } from '@tsfpp/prelude';
+import { ok, err, isErr, intoMap } from '@tsfpp/prelude';
 import type { Result } from '@tsfpp/prelude';
 import { parse } from './edn-parser.js';
 import { toCnjModel } from './cnj-model.js';
 import type { CnjDocument } from './cnj-model.js';
+import { bindingNames } from './references.js';
 
 export type ParsedFileEntry = {
   readonly path: string;
@@ -14,9 +15,18 @@ export type ParsedFileEntry = {
   readonly directRefs: ReadonlyArray<string>;   // absolute paths of charter :references
 };
 
+/** A target `:from` that names neither a target nor a binding anywhere in the workspace. */
+export type UnresolvedDependency = {
+  readonly target: string;
+  readonly dependency: string;
+};
+
 export type WorkspaceSnapshot = {
   readonly files: ReadonlyMap<string, ParsedFileEntry>;
   readonly targetEdges: ReadonlyMap<string, ReadonlyArray<string>>;  // target name → from targets
+  /** Target name → `:from` names that resolve to a binding (`def`, `:manifest`) rather than a target. */
+  readonly bindingDeps: ReadonlyMap<string, ReadonlyArray<string>>;
+  readonly unresolvedDeps: ReadonlyArray<UnresolvedDependency>;
   readonly cycleDetected: boolean;
 };
 
@@ -140,7 +150,17 @@ export const buildWorkspaceSnapshot = (entryFile: string): Result<WorkspaceSnaps
   if (!existsSync(entryFile)) return err(`Entry file not found: ${entryFile}`);
   const files = discoverFiles(entryFile);
   if (files.size === 0) return err(`Could not parse entry file: ${entryFile}`);
-  const targetEdges = buildTargetEdges(files);
+  const declaredFroms = buildTargetEdges(files);
+  const targetNames = Array.from(declaredFroms.keys());
+  const bindings = Array.from(files.values()).flatMap((entry) => bindingNames(entry.doc));
+  const partition = (pred: (dep: string) => boolean): ReadonlyMap<string, ReadonlyArray<string>> =>
+    intoMap(Array.from(declaredFroms.entries()).map(([name, froms]) => [name, froms.filter(pred)] as const));
+  const targetEdges = partition((dep) => targetNames.includes(dep));
+  const bindingDeps = partition((dep) => !targetNames.includes(dep) && bindings.includes(dep));
+  const unresolvedDeps: ReadonlyArray<UnresolvedDependency> = Array.from(declaredFroms.entries())
+    .flatMap(([target, froms]) => froms
+      .filter((dep) => !targetNames.includes(dep) && !bindings.includes(dep))
+      .map((dependency) => ({ target, dependency })));
 
   const initial: TopoState = {
     sorted: [],
@@ -154,5 +174,5 @@ export const buildWorkspaceSnapshot = (entryFile: string): Result<WorkspaceSnaps
     initial,
   );
 
-  return ok({ files, targetEdges, cycleDetected: topoResult.cycleDetected });
+  return ok({ files, targetEdges, bindingDeps, unresolvedDeps, cycleDetected: topoResult.cycleDetected });
 };

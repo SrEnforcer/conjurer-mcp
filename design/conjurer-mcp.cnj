@@ -260,7 +260,8 @@
                 False-positive posture: all warnings; promotion to :error deferred
                 until signal quality is confirmed. 358/358 tests pass, build clean.
                 v2 validation depth sequence now complete."}
-    {:date "2026-06-10"
+    {:id :list-candidates-2026-06-10
+     :date "2026-06-10"
      :decision "list_candidates hoisted from the foresight backlog and implemented.
                 f/candidate forms are now first-class in the model: CnjCandidateForm
                 added to cnj-model.ts (id, label, cluster, status, scores as
@@ -272,7 +273,8 @@
                 call. Foresight rationale document written to
                 design/conjurer-spec-foresight-rationale.md and the foresight.md
                 grimoire was accepted into the conjurer-spec. 386/386 tests pass."}
-    {:date "2026-06-12"
+    {:id :materialise_plan-2026-06-12
+     :date "2026-06-12"
      :decision "materialise_plan hoisted. Given a resolved WorkspaceSnapshot + preflight report,
                 emit a dependency-ordered task list: {order, target, file, depends_on, reason,
                 modules [{module, est_lines}], produces}. Pure formatter over existing data
@@ -288,7 +290,24 @@
                 (Reassess + Hoist buttons; f/reassess inserted as standalone block after closing paren).
                 All implemented in vscode-extension.cnj candidates session 2026-06-12."
      :confidence :attested
-     :evidence ["Hoisted 2026-06-12; implementations added to providers/ and commands/"]}]
+     :evidence ["Hoisted 2026-06-12; implementations added to providers/ and commands/"]}
+    {:id       :spec-alignment-2026-10
+     :date     "2026-10-12"
+     :decision "The server and the editor extension follow the October 2026 specification
+                (core 3.0.0, index.edn 2.0.0 with :prelude). The spec is read live first.
+                Validation reads :manifest as output bindings (Q-12), resolves a target's
+                :from against every binding (Q-14), checks decision ids and reference
+                keywords, and warns about retired forms. A candidate's status is derived
+                from its history and hoists; backlog health is one shared module used by
+                both packages. The prelude is evaluated deterministically and exposed
+                through the new tool check_postconditions. The individual decisions are
+                recorded in mcp-server.cnj under the same date. The decisions that existing
+                f/hoist forms point to now carry an :id (the name the hoist already used),
+                and those hoists write :decision/<id>; the ids were added on 2026-10-12, the
+                decisions themselves are unchanged."
+     :confidence :attested
+     :evidence ["Full test suite passes on branch claude/spec-alignment-2026-10"
+                "validate_cnj run over all five design files against the live spec"]}]
 
   :open []
 
@@ -621,7 +640,7 @@
 
 (f/hoist :of :list_candidates
   :date     "2026-06-10"
-  :into     :charter-decision/list-candidates-2026-06-10
+  :into     :decision/list-candidates-2026-06-10
   :outcomes [:cnj-model-gains-candidates :new-foresight-module :tool-registered]
   :note     "Both gating conditions met: CnjCandidateForm added to cnj-model.ts;
              nine f/candidates exist in conjurer-mcp.cnj. Implemented same session.")
@@ -631,14 +650,14 @@
 
 (f/hoist :of :lens-hoist-readiness
   :date     "2026-06-10"
-  :into     :charter-decision/lens-hoist-readiness-2026-06-10
+  :into     :decision/lens-hoist-readiness-2026-06-10
   :outcomes [:new-foresight-handler :lens-hoist-readiness-registered]
   :note     "Backlog exceeded threshold (14 candidates); CnjCandidateForm.history landed
              as a shared model extension in the same session. Implemented same day.")
 
 (f/hoist :of :diff-candidates
   :date     "2026-06-10"
-  :into     :charter-decision/diff-candidates-2026-06-10
+  :into     :decision/diff-candidates-2026-06-10
   :outcomes [:diff-candidates-handler :diff-candidates-registered]
   :note     "CnjHoist type landed as shared model extension in the same session,
              enabling graduation detection. Implemented same day.")
@@ -647,7 +666,7 @@
 
 (f/hoist :of :lint_disk_consistency
   :date     "2026-06-10"
-  :into     :charter-decision/lint-disk-consistency-2026-06-10
+  :into     :decision/lint-disk-consistency-2026-06-10
   :outcomes [:cluster-c-extended :lint-disk-consistency-registered :suffix-match-module-discovery]
   :note     "Both deferral conditions resolved in the same session: workspace-state.ts
              was confirmed stable, and the I/O walk pattern was established by the
@@ -656,7 +675,7 @@
 
 (f/hoist :of :materialise_plan
   :date     "2026-06-12"
-  :into     :charter-decision/materialise_plan-2026-06-12
+  :into     :decision/materialise_plan-2026-06-12
   :outcomes [:materialise-plan-tool-registered :task-list-output :project-tools-extended]
   :note     "Condition met: output schema decided ({tasks: [{order, target, file, depends_on,
              reason, modules, produces}]}). Preflight resolver confirmed stable.
