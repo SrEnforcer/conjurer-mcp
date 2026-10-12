@@ -6,7 +6,6 @@
 /* eslint-disable functional/immutable-data -- DEVIATION(2.3): local mutation is confined to ephemeral accumulators during graph assembly. */
 /* eslint-disable max-lines-per-function -- DEVIATION(3.4): tool handlers mirror MCP contract branches; decomposition deferred to dedicated refactor slice. */
 /* eslint-disable complexity -- DEVIATION(3.4): complexity reflects protocol branching and dependency states. */
-/* eslint-disable functional/prefer-readonly-type -- DEVIATION(2.2): SDK interop surfaces mutable shape annotations in adapter code paths. */
 import { resolve as resolvePath } from 'node:path';
 import { readFileSync, existsSync } from 'node:fs';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
