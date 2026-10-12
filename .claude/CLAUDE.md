@@ -18,8 +18,8 @@ The design is recorded in five `.cnj` files under `design/`:
 - `conjurer-mcp.cnj` — the project anchor: charter, assets, assumptions, decisions, open questions
 - `mcp-server.cnj` — the server's tools (as Conjurer spells) and the module decomposition
 - `vscode-extension.cnj` — the extension's features and bundling
-- `conjurer-mcp_exhume.cnj` — the exhume driver used to recover the prior codebase
-- `conjurer-mcp_recovered.cnj` — the recovered baseline (`0.0.0-recovered`); a faithful record of the OLD code, not a target
+- `conjurer-mcp.exhume.cnj` — the exhume driver used to recover the prior codebase
+- `conjurer-mcp.recovered.cnj` — the recovered baseline (`0.0.0-recovered`); a faithful record of the OLD code, not a target
 
 **When the design and this file disagree, the `.cnj` files win.** If you find a
 genuine gap or contradiction in a `.cnj`, surface it as an `:open` question or a
@@ -46,12 +46,17 @@ non-negotiable.
   All diagnostics go to **stderr** (`logging.ts`).
 
 **Conjurer spec (the data the server serves):**
-- `index.edn` is the authoritative symbol catalog and routing layer (currently
-  134 symbols across 11 grimoires; catalog version 1.4.0).
+- `index.edn` is the authoritative symbol catalog and routing layer. Its
+  `:prelude` lists the forms a deterministic processor may evaluate; every other
+  head is a semantic function the server reports but never evaluates. Read
+  counts and versions from the live file — do not copy them here.
 - Grimoire files live under `grimoires/`. The server treats the spec as
   **read-only** and never mutates it.
 - **Do not embed spec content in the build.** The server reads the live spec so
-  that spec updates need no rebuild.
+  that spec updates need no rebuild. `resolveSpecPath` tries, in order:
+  `CONJURER_SPEC_PATH` (when it holds an `index.edn`), a sibling checkout named
+  `conjurer-spec` or `conjurer` beside this monorepo, then the installed
+  `conjurer-spec` package.
 
 ## Architecture
 
@@ -82,10 +87,15 @@ ceilings to design toward, not budgets to fill.
 | `spec-reader.ts` | Locate the spec (path/symlink), lazy-read grimoires, cache by mtime. The only module touching the spec filesystem. | `SpecReader`, `resolveSpecPath`, `readGrimoire`, `readSection` |
 | `symbol-index.ts` | Parse index.edn once into an in-memory Map; lookup/search/list. Routing only, no grimoire I/O. | `SymbolIndex`, `lookup`, `search`, `listAll` |
 | `cnj-model.ts` | Shape a parsed .cnj AST into the typed project model (charter, assets, targets, candidates, hoists). | `CnjDocument`, `Charter`, `CnjCandidateForm`, `CnjHoist`, `toCnjModel` |
-| `validation.ts` | Pure rule functions over a CnjDocument → violation list. `:authored` and `:recovered` modes. No I/O. | `validateCnj`, `ValidationRule`, `Violation`, `ValidationMode` |
+| `validation.ts` | Pure rule functions over a CnjDocument → violation list. `:authored` and `:recovered` modes. No I/O. | `validateCnj`, `ValidationRule`, `Violation`, `ValidationMode`, `checkFormReferences`, `checkEnsurePrelude` |
 | `preflight-resolver.ts` | Deterministic folder preflight: discover entry .cnj, resolve in-folder + external refs, report unresolved as diagnostics. | `runMaterialisePreflight`, `MaterialisePreflightReport` |
 | `workspace-state.ts` | Build cross-file target DAG from `:from` fields + charter `:references` discovery; topological sort; SHA-256 context-key over transitive file contents. Pure — no mutable state. | `buildWorkspaceSnapshot`, `topoOrder`, `computeContextKey`, `WorkspaceSnapshot` |
 | `types.ts` | Shared boundary types. | `SymbolRecord`, `GrimoireRef`, `ToolResult` |
+| `references.ts` | Names and reference keywords (`:decision/x`, `:target/x`, …; legacy `:charter-decision/` read as a decision); declared names and bindings per document. | `parseReference`, `bareName`, `declaredNames`, `bindingNames`, `referenceSites` |
+| `foresight-health.ts` | Backlog diagnostics shared by server and extension. The reference date is a parameter; `todayISO` reads the clock at the edge. | `computeForesightHealth`, `candidateTotal`, `todayISO` |
+| `prelude.ts` | Parse `:prelude` from index.edn; evaluate prelude expressions deterministically; report semantic heads. | `parsePrelude`, `evaluate`, `semanticHeads` |
+| `postconditions.ts` | Find `ensure` forms; check `:structural` predicates against supplied values. | `findEnsureSites`, `checkPredicate`, `unverifiableAtMcp` |
+| `migration-lint.ts` | Warnings for forms the spec retired, naming the current form. | `lintRetiredForms` |
 
 **server (packages/mcp-server/src/):**
 
@@ -94,39 +104,49 @@ ceilings to design toward, not budgets to fill.
 | `server.ts` | Entry point: build server, register all tools and resources, connect stdio, start. Wiring only. | `main` |
 | `tools/retrieval.ts` | Register/handle the eight Cluster-A tools (`lookup_symbol`, `search_symbols`, `get_grimoire_section`, `get_examples`, `list_grimoire`, `check_symbol_coverage`, `trace_symbol`, `explain_form`); delegate to symbol-index, spec-reader, workspace-state, cnj-model. | `registerRetrievalTools` |
 | `tools/parse.ts` | Register/handle `parse_cnj`, `read_charter`. | `registerParseTools` |
-| `tools/validate.ts` | Register/handle `validate_cnj`. | `registerValidateTools` |
+| `tools/validate.ts` | Register/handle `validate_cnj` and `lint_disk_consistency`. | `registerValidateTools` |
 | `tools/diff.ts` | Register/handle `diff_cnj` (charter/targets/assets semantic diff) and `diff_candidates` (candidate backlog diff: added, removed, hoisted, status/score changes). Pure comparison over `CnjDocument` values; no workspace state or spec lookup. | `registerDiffTools` |
-| `tools/project.ts` | Register/handle the four core Cluster-D tools (`resolve`, `evaluate`, `project_lint_topology`, `materialise_preflight`); delegate to workspace-state and preflight-resolver. Holds the process-local evaluate cache. | `registerProjectTools` |
+| `tools/project.ts` | Register/handle the core Cluster-D tools (`resolve`, `evaluate`, `project_lint_topology`, `materialise_preflight`, `materialise_plan`); delegate to workspace-state and preflight-resolver. Holds the process-local evaluate cache. | `registerProjectTools` |
 | `tools/lenses.ts` | Register/handle workspace lens tools (`lens_dependency_graph`, `lens_open_questions`, `workspace_summary`); delegate to workspace-state and validation. | `registerLensTools` |
-| `tools/foresight.ts` | Register/handle Cluster-F foresight tools (`list_candidates`, `lens_hoist_readiness`); pure fold over `CnjDocument.candidates`. | `registerForesightTools` |
+| `tools/foresight.ts` | Register/handle Cluster-F foresight tools (`list_candidates`, `lens_hoist_readiness`, `lens_foresight_health`); pure fold over `CnjDocument.candidates` and `hoists`. | `registerForesightTools` |
+| `tools/postconditions.ts` | Register/handle `check_postconditions`; delegate to postconditions and the prelude. | `registerPostconditionTools` |
 | `resources.ts` | Register MCP protocol resources (`conjurer://grimoire/<name>`): list all grimoire names and read one grimoire file. Read-only; delegates to spec-reader. No tool overlap — tools slice, resources browse. | `registerGrimoireResources` |
 | `logging.ts` | stderr-only structured logging — never stdout. | `log`, `logError` |
 
-## The tools (22, five clusters)
+## The tools
 
 All deterministic. None calls a model.
 
-**Cluster A — retrieval (8):** `lookup_symbol`, `search_symbols`,
+**Cluster A — retrieval:** `lookup_symbol`, `search_symbols`,
 `get_grimoire_section`, `get_examples`, `list_grimoire`, `check_symbol_coverage`
 (utilisation density + gap map against the full index), `trace_symbol` (inverse
 of coverage: which files reference a symbol), `explain_form` (rich contextual
 explanation of one named form including all referenced symbols).
-**Cluster B — parsing & diff (3):** `parse_cnj`, `read_charter`, `diff_cnj`
+**Cluster B — parsing & diff:** `parse_cnj`, `read_charter`, `diff_cnj`
 (structured semantic diff between two .cnj snapshots: goals, decisions, targets,
-assets).
-**Cluster C — validation (1):** `validate_cnj` (with `:mode :authored | :recovered`).
-**Cluster D — project-aware planning (7):** `resolve` (dependency-aware order +
+assets), `diff_candidates` (semantic backlog diff keyed by stable `:id`: added,
+removed, status/score changes, graduations via f/hoist).
+**Cluster C — validation:** `validate_cnj` (with `:mode :authored | :recovered`),
+`lint_disk_consistency` (declared modules and references against the filesystem).
+**Cluster D — project-aware planning:** `resolve` (dependency-aware order +
 unresolved diagnostics), `evaluate` (fingerprint-cached plan evaluation, reports
 stale rather than silently reusing), `project_lint_topology` (cross-file
 diagnostics), `materialise_preflight` (folder preflight before materialisation),
+`materialise_plan` (dependency-ordered task list from a resolved preflight),
 `lens_dependency_graph` (cross-file target DAG + topo order, optional subgraph
 filter), `lens_open_questions` (workspace-wide open question inventory),
 `workspace_summary` (per-file structural stats in one call).
-**Cluster F — foresight (3):** `list_candidates` (f/candidate backlog grouped by
+**Cluster F — foresight:** `list_candidates` (f/candidate backlog grouped by
 `:cluster`, ranked by score), `lens_hoist_readiness` (pre-decision triage briefing:
 active candidates above score threshold with conditions verbatim),
-`diff_candidates` (semantic backlog diff keyed by stable `:id`: added, removed,
-status/score changes, graduations via f/hoist).
+`lens_foresight_health` (stale, thin, orphaned and unconditioned candidates;
+lifecycle distribution). A candidate's status is derived: hoisted when an
+`f/hoist` names it, otherwise the latest `:status` in its history.
+**Postconditions:** `check_postconditions` (evaluates an `ensure`'s `:structural`
+predicates written in the prelude against supplied values; semantic predicates
+are reported, not evaluated).
+
+`server.ts` is the authoritative list of registered tools.
 
 Each tool's full I/O contract is a spell in `mcp-server.cnj` — read it there
 before implementing the handler; do not invent the schema.
@@ -154,10 +174,10 @@ behaviour and must be preserved.
   prefer returning typed results over throwing across boundaries.
 - **pnpm**, trunk-based. Keep modules under the line ceiling; if one grows, split
   it rather than deviating.
-- **Tests alongside the work.** The suite currently passes 158/158 — keep it
-  green; add tests with each module, especially for the EDN parser's nested
+- **Tests alongside the work.** Keep the suite green; add tests with each module, especially for the EDN parser's nested
   structures (maps and vectors inside `:decisions`/`:evidence`) and for each
-  tool's I/O contract.
+  tool's I/O contract. Pass the reference date into anything date-dependent;
+  never let a test depend on the day it runs.
 - **Verify against real output.** When fixing or extending a tool, re-run it over
   the five `design/*.cnj` files and check the actual JSON, not the intended
   behaviour. Recent bug-fixes were all confirmed this way.
@@ -181,6 +201,6 @@ they were the hard-won fixes and are the easiest to regress.
 - Do not write to stdout.
 - Do not embed spec content in the build.
 - Do not create a god-file or exceed the line ceiling without a documented deviation.
-- Do not "correct" `conjurer-mcp_recovered.cnj` (e.g. removing its `http-bridge`).
+- Do not "correct" `conjurer-mcp.recovered.cnj` (e.g. removing its `http-bridge`).
   A recovered `.cnj` faithfully records what the old code WAS, not what we now intend.
 - Do not invent a tool's input schema — read the spell in `mcp-server.cnj`.

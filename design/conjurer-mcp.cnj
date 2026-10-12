@@ -288,7 +288,23 @@
                 (Reassess + Hoist buttons; f/reassess inserted as standalone block after closing paren).
                 All implemented in vscode-extension.cnj candidates session 2026-06-12."
      :confidence :attested
-     :evidence ["Hoisted 2026-06-12; implementations added to providers/ and commands/"]}]
+     :evidence ["Hoisted 2026-06-12; implementations added to providers/ and commands/"]}
+    {:id       :spec-alignment-2026-10
+     :date     "2026-10-12"
+     :decision "The server and the editor extension follow the October 2026 specification
+                (core 3.0.0, index.edn 2.0.0 with :prelude). The spec is read live first.
+                Validation reads :manifest as output bindings (Q-12), resolves a target's
+                :from against every binding (Q-14), checks decision ids and reference
+                keywords, and warns about retired forms. A candidate's status is derived
+                from its history and hoists; backlog health is one shared module used by
+                both packages. The prelude is evaluated deterministically and exposed
+                through the new tool check_postconditions. The individual decisions are
+                recorded in mcp-server.cnj under the same date. Existing f/hoist forms keep
+                their :charter-decision/ references as written; they draw migration warnings
+                until their receiving decisions carry ids."
+     :confidence :attested
+     :evidence ["Full test suite passes on branch claude/spec-alignment-2026-10"
+                "validate_cnj run over all five design files against the live spec"]}]
 
   :open []
 
