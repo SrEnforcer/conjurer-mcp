@@ -34,9 +34,10 @@ export const handleValidate = (
   const doc = toCnjModel(parsed.value, filePath);
   if (isErr(doc)) return toContent(`Model error: ${doc.error}`);
   const symbolRefs = isDefined(index) ? collectSymbolRefs(parsed.value) : undefined;
+  // A URL reference is not a file to read; only local paths are checked.
   const referencesStatus = doc.value.charter.references.map((ref) => ({
     ref,
-    exists: existsSync(resolvePath(dirname(filePath), ref)),
+    exists: /^https?:\/\//.test(ref) || existsSync(resolvePath(dirname(filePath), ref)),
   }));
   const report = validateCnj(
     doc.value,
