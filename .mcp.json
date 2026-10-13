@@ -9,15 +9,13 @@
       "env": {}
     },
     "tsfpp-mcp-server": {
-      "type": "local",
+      "type": "stdio",
       "command": "pnpm",
       "args": [
         "tsx",
         "node_modules/@tsfpp/mcp-server/bin/tsfpp-mcp.ts"
       ],
-      "tools": [
-        "*"
-      ]
+      "env": {}
     }
   }
 }
