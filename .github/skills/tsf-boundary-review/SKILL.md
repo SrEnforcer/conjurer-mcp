@@ -1,16 +1,9 @@
 ---
+name: tsf-boundary-review
 description: Targeted review of API boundary code against @tsfpp/boundary patterns and the API coding standard. Faster than a full audit — no report file, inline findings only.
-name: TSF++ boundary review
+disable-model-invocation: true
 argument-hint: "File(s) or directory to review, e.g. src/routes/tracks.ts"
-agent: agent
-tools:
-  - read
-  - search/codebase
-  - search/textSearch
-  - search/usages
-  - vscode/askQuestions
 ---
-
 # TSF++ boundary review
 
 A focused, read-only review of API handler and route code against the `@tsfpp/boundary` patterns and the API coding standard.

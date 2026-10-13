@@ -1,16 +1,9 @@
 ---
+name: tsf-new-module
 description: Scaffolds a new TSF++-compliant module with types, smart constructors, exports, JSDoc, and a test file skeleton.
-name: TSF++ new module
+disable-model-invocation: true
 argument-hint: "module=<name> layer=<core|api|dal|react> description=<one sentence>"
-agent: agent
-tools:
-  - edit/createFile
-  - edit/editFiles
-  - read/readFile
-  - search/fileSearch
-  - vscode/askQuestions
 ---
-
 # TSF++ new module
 
 Scaffold a new TSF++-compliant module from scratch.
