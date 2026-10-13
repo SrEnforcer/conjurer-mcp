@@ -1,6 +1,6 @@
 ---
 name: trunk-changelog
-description: trunk-changelog
+description: Derives a conventional commit message from the working tree and appends a matching entry to the Unreleased section of CHANGELOG.md.
 disable-model-invocation: true
 ---
 # Write changelog entry
