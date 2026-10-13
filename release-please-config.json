@@ -28,7 +28,8 @@
           "type": "json",
           "path": "packages/vscode-extension/package.json",
           "jsonpath": "$.version"
-        }
+        },
+        "packages/mcp-server/src/server.ts"
       ]
     }
   }
