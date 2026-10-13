@@ -9,6 +9,11 @@ export type SpecReader = {
   readonly specPath: string;
 };
 
+/** The environment variables spec resolution reads; the caller supplies them from its boundary. */
+export type SpecEnv = {
+  readonly CONJURER_SPEC_PATH?: string | undefined;
+};
+
 const _require = createRequire(import.meta.url);
 
 /** Directory names tried beside the monorepo root, in order, for a live spec checkout. */
@@ -16,8 +21,8 @@ const SIBLING_SPEC_DIRS: ReadonlyArray<string> = ['conjurer-spec', 'conjurer'];
 
 const hasIndexFile = (dir: string): boolean => existsSync(resolve(dir, 'index.edn'));
 
-const fromEnvironment = (): Option<string> => {
-  const fromEnv = process.env['CONJURER_SPEC_PATH'];
+const fromEnvironment = (env: SpecEnv): Option<string> => {
+  const fromEnv = env.CONJURER_SPEC_PATH;
   return fromEnv !== undefined && fromEnv.length > 0 && hasIndexFile(fromEnv) ? some(resolve(fromEnv)) : none;
 };
 
@@ -43,11 +48,12 @@ const fromInstalledPackage = (): Option<string> => {
  * beside the monorepo; the installed `conjurer-spec` package. The installed package is
  * a copy made at install time, so it is the last resort: the server reads the spec live.
  *
+ * @param env - Environment variables, injected by the caller (pass `process.env` at the entry point).
  * @returns The spec directory, or none when no candidate holds an `index.edn`.
  */
-export const resolveSpecPath = (): Option<string> => {
-  const env = fromEnvironment();
-  if (isSome(env)) return env;
+export const resolveSpecPath = (env: SpecEnv): Option<string> => {
+  const fromEnv = fromEnvironment(env);
+  if (isSome(fromEnv)) return fromEnv;
   const sibling = fromSibling();
   return isSome(sibling) ? sibling : fromInstalledPackage();
 };
