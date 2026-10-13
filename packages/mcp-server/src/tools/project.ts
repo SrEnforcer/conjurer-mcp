@@ -12,7 +12,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { parse, toCnjModel, runMaterialisePreflight, buildWorkspaceSnapshot, topoOrder, computeContextKey } from '@conjurer/core';
 import type { EdnNode } from '@conjurer/core';
-import { isErr, fromNullable, getOrElse, isSome } from '@tsfpp/prelude';
+import { isErr, fromNullable, getOrElseOption, isSome } from '@tsfpp/prelude';
 
 type ToolContent = ReadonlyArray<{ readonly type: 'text'; readonly text: string }>;
 
@@ -91,9 +91,9 @@ export const handleResolve = (
   const plan = order
     .filter((name) => formName === undefined || name === formName || !entryTargetNames.has(name) || order.indexOf(name) < order.indexOf(formName))
     .map((name, i) => {
-      const sourceFile = getOrElse(() => abs)(fromNullable(targetFileMap.get(name)));
+      const sourceFile = getOrElseOption(() => abs)(fromNullable(targetFileMap.get(name)));
       const isDirect = isSome(fromNullable(snapshot.targetEdges.get(name)));
-      const selectedFormName = getOrElse(() => name)(fromNullable(formName));
+      const selectedFormName = getOrElseOption(() => name)(fromNullable(formName));
       return {
         form: 'target',
         file: sourceFile,
@@ -110,7 +110,7 @@ export const handleResolve = (
 
   const unresolved = snapshot.unresolvedDeps.map(({ target, dependency }) => ({
     symbol: dependency,
-    expected_in: getOrElse(() => abs)(fromNullable(targetFileMap.get(target))),
+    expected_in: getOrElseOption(() => abs)(fromNullable(targetFileMap.get(target))),
   }));
 
   const planId = computeContextKey(snapshot, [abs]);
@@ -138,7 +138,7 @@ export const handleEvaluate = (
   mode: string | undefined = undefined,
 ): ToolContent => {
   if (filePath === undefined) {
-    const cacheKey = getOrElse(() => `eval-${Date.now()}`)(fromNullable(resolveId));
+    const cacheKey = getOrElseOption(() => `eval-${Date.now()}`)(fromNullable(resolveId));
     return toContent(JSON.stringify({ cache_hit: false, cache_key: cacheKey, artifact: {}, artifact_note: ARTIFACT_NOTE, stale: [] }, null, 2));
   }
 
@@ -155,7 +155,7 @@ export const handleEvaluate = (
     return toContent(JSON.stringify({
       cache_hit: true,
       cache_key: cacheKey,
-      mode: getOrElse(() => 'deterministic')(fromNullable(mode)),
+      mode: getOrElseOption(() => 'deterministic')(fromNullable(mode)),
       artifact: {},
       artifact_note: ARTIFACT_NOTE,
       stale: [],
@@ -171,7 +171,7 @@ export const handleEvaluate = (
   return toContent(JSON.stringify({
     cache_hit: false,
     cache_key: cacheKey,
-    mode: getOrElse(() => 'deterministic')(fromNullable(mode)),
+    mode: getOrElseOption(() => 'deterministic')(fromNullable(mode)),
     artifact: {},
     artifact_note: ARTIFACT_NOTE,
     stale,
@@ -179,7 +179,7 @@ export const handleEvaluate = (
 };
 
 const handleLintTopology = (workspace: string | undefined = undefined): ToolContent => {
-  const root = getOrElse(() => process.cwd())(fromNullable(workspace));
+  const root = getOrElseOption(() => process.cwd())(fromNullable(workspace));
   const r = runMaterialisePreflight(root);
   if (isErr(r)) {
     return toContent(JSON.stringify(
@@ -252,7 +252,7 @@ export const handleMaterialisePlan = (filePath: string): ToolContent => {
   }
 
   const tasks = order.map((name, i) => {
-    const file = getOrElse(() => abs)(fromNullable(targetFileMap.get(name)));
+    const file = getOrElseOption(() => abs)(fromNullable(targetFileMap.get(name)));
     const entry = snapshot.files.get(file);
     const target = entry?.doc.targets.find((t) => t.name === name);
     const deps = Array.from(snapshot.targetEdges.entries())

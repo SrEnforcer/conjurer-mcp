@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { fromNullable, getOrElse } from '@tsfpp/prelude';
+import { fromNullable, getOrElseOption } from '@tsfpp/prelude';
 import { handleParseCnj, handleReadCharter } from '../../tools/parse.js';
 import { parseFirstToolObject } from './tool-json.js';
 
@@ -13,7 +13,7 @@ const virtualFiles: Readonly<Record<string, string>> = {
 
 vi.mock('node:fs', () => ({
   existsSync: (path: string): boolean => Object.prototype.hasOwnProperty.call(virtualFiles, path),
-  readFileSync: (path: string): string => getOrElse(() => '')(fromNullable(virtualFiles[path])),
+  readFileSync: (path: string): string => getOrElseOption(() => '')(fromNullable(virtualFiles[path])),
 }));
 
 describe('handleParseCnj — inline', () => {

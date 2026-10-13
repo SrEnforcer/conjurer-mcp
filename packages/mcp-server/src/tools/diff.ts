@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { parse, toCnjModel, effectiveScores } from '@conjurer/core';
 import type { Charter, CnjDocument, CnjCandidateForm, CnjHoist } from '@conjurer/core';
 import type { EdnNode } from '@conjurer/core';
-import { isErr, entriesOfMap, intoMap } from '@tsfpp/prelude';
+import { isErr, entriesOf, intoMap } from '@tsfpp/prelude';
 
 type ToolContent = ReadonlyArray<{ readonly type: 'text'; readonly text: string }>;
 
@@ -19,7 +19,7 @@ type ArrayDiff<T> = { readonly added: ReadonlyArray<T>; readonly removed: Readon
 const ednToJson = (n: EdnNode): unknown => {
   if (n.type === 'map') {
     return Object.fromEntries(
-      entriesOfMap(n.entries).map(([k, v]: readonly [string, EdnNode]) => [k, ednToJson(v)]),
+      entriesOf(n.entries).map(([k, v]: readonly [string, EdnNode]) => [k, ednToJson(v)]),
     );
   }
   if (n.type === 'list') return n.elements.map(ednToJson);

@@ -8,7 +8,7 @@ import { resolve as resolvePath } from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { buildWorkspaceSnapshot, topoOrder, validateCnj } from '@conjurer/core';
-import { isErr, fromNullable, getOrElse, intoMap } from '@tsfpp/prelude';
+import { isErr, fromNullable, getOrElseOption, intoMap } from '@tsfpp/prelude';
 import type { WorkspaceSnapshot } from '@conjurer/core';
 
 type ToolContent = ReadonlyArray<{ readonly type: 'text'; readonly text: string }>;
@@ -41,7 +41,7 @@ const reachableFrom = (
     const next = queue.shift();
     if (next === undefined) break;
     // DEVIATION(4.2): Edge iteration within BFS traversal.
-    for (const dep of getOrElse<ReadonlyArray<string>>(() => [])(fromNullable(edges.get(next)))) {
+    for (const dep of getOrElseOption<ReadonlyArray<string>>(() => [])(fromNullable(edges.get(next)))) {
       if (!result.has(dep)) { result.add(dep); queue.push(dep); }
     }
   }
@@ -87,7 +87,7 @@ export const handleLensDependencyGraph = (
   const snapshot = snapshotRes.value;
 
   const fileOfTarget = targetFiles(snapshot);
-  const fileOf = (name: string): string => getOrElse(() => abs)(fromNullable(fileOfTarget.get(name)));
+  const fileOf = (name: string): string => getOrElseOption(() => abs)(fromNullable(fileOfTarget.get(name)));
   const scope: ReadonlyArray<string> = target !== undefined
     ? reachableFrom(target, snapshot.targetEdges)
     : Array.from(snapshot.targetEdges.keys());

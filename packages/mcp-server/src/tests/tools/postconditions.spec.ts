@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { fromNullable, getOrElse, intoMap } from '@tsfpp/prelude';
+import { fromNullable, getOrElseOption, intoMap } from '@tsfpp/prelude';
 import { parse, parsePrelude } from '@conjurer/core';
 import type { SymbolIndex } from '@conjurer/core';
 import { handleCheckPostconditions } from '../../tools/postconditions.js';
@@ -20,7 +20,7 @@ const virtualFiles: Readonly<Record<string, string>> = { '/vfs/infra.cnj': RATE_
 
 vi.mock('node:fs', () => ({
   existsSync: (path: string): boolean => Object.prototype.hasOwnProperty.call(virtualFiles, path),
-  readFileSync: (path: string): string => getOrElse(() => '')(fromNullable(virtualFiles[path])),
+  readFileSync: (path: string): string => getOrElseOption(() => '')(fromNullable(virtualFiles[path])),
 }));
 
 const preludeNode = parse(`{:types [string integer one-of] :predicates [= not= < <= > >= in? and or not] :expansion [for str]}`);
