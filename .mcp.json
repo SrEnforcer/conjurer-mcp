@@ -7,6 +7,17 @@
         "packages/mcp-server/dist/server.js"
       ],
       "env": {}
+    },
+    "tsfpp-mcp-server": {
+      "type": "local",
+      "command": "pnpm",
+      "args": [
+        "tsx",
+        "node_modules/@tsfpp/mcp-server/bin/tsfpp-mcp.ts"
+      ],
+      "tools": [
+        "*"
+      ]
     }
   }
 }

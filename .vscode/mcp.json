@@ -1,16 +1,3 @@
 {
-  "servers": {
-    "conjurer-mcp": {
-      "type": "stdio",
-      "command": "node",
-      "args": ["${workspaceFolder}/packages/mcp-server/dist/server.js"]
-    },
-    "tsfpp-mcp-server": {
-      "command": "pnpm",
-      "args": [
-        "tsx",
-        "node_modules/@tsfpp/mcp-server/bin/tsfpp-mcp.ts"
-      ]
-    }
-  }
+	"servers": {}
 }
