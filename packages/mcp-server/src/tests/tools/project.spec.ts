@@ -1,7 +1,7 @@
 /* eslint-disable max-lines-per-function -- DEVIATION(3.4): integration-like scenario assertions remain grouped to preserve workspace-flow context. */
 /* eslint-disable functional/prefer-readonly-type -- DEVIATION(2.2): inline assertion helper shapes in tests prioritize readability over readonly wrappers. */
 import { describe, it, expect, vi } from 'vitest';
-import { fromNullable, getOrElse } from '@tsfpp/prelude';
+import { fromNullable, getOrElseOption } from '@tsfpp/prelude';
 import { handleResolve, handlePreflight } from '../../tools/project.js';
 import { handleLensDependencyGraph, handleWorkspaceSummary, handleLensOpenQuestions } from '../../tools/lenses.js';
 import { parseFirstToolObject } from './tool-json.js';
@@ -38,8 +38,8 @@ const virtualDirs: Readonly<Record<string, ReadonlyArray<string>>> = {
 vi.mock('node:fs', () => ({
   existsSync: (path: string): boolean => Object.prototype.hasOwnProperty.call(virtualFiles, path)
     || Object.prototype.hasOwnProperty.call(virtualDirs, path),
-  readFileSync: (path: string): string => getOrElse(() => '')(fromNullable(virtualFiles[path])),
-  readdirSync: (path: string): ReadonlyArray<string> => getOrElse<ReadonlyArray<string>>(() => [])(fromNullable(virtualDirs[path])),
+  readFileSync: (path: string): string => getOrElseOption(() => '')(fromNullable(virtualFiles[path])),
+  readdirSync: (path: string): ReadonlyArray<string> => getOrElseOption<ReadonlyArray<string>>(() => [])(fromNullable(virtualDirs[path])),
 }));
 
 describe('handleResolve — inline', () => {

@@ -1,4 +1,4 @@
-import { fromNullable, getOrElse } from '@tsfpp/prelude';
+import { fromNullable, getOrElseOption } from '@tsfpp/prelude';
 
 type ToolResponseItem = Readonly<{ readonly text: string | undefined }>;
 
@@ -13,7 +13,7 @@ export const parseFirstToolText = (
   response: ReadonlyArray<ToolResponseItem>,
   fallbackJson: string,
 ): ReturnType<typeof JSON.parse> =>
-  JSON.parse(getOrElse(() => fallbackJson)(fromNullable(response[0]?.text)));
+  JSON.parse(getOrElseOption(() => fallbackJson)(fromNullable(response[0]?.text)));
 
 /**
  * Parses an object payload from the first tool text entry.

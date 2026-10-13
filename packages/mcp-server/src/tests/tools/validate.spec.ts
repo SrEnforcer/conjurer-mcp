@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { fromNullable, getOrElse, intoMap } from '@tsfpp/prelude';
+import { fromNullable, getOrElseOption, intoMap } from '@tsfpp/prelude';
 import { handleValidate } from '../../tools/validate.js';
 import { parseFirstToolObject } from './tool-json.js';
 import type { SymbolIndex } from '@conjurer/core';
@@ -23,7 +23,7 @@ const virtualFiles: Readonly<Record<string, string>> = {
 
 vi.mock('node:fs', () => ({
   existsSync: (path: string): boolean => Object.prototype.hasOwnProperty.call(virtualFiles, path),
-  readFileSync: (path: string): string => getOrElse(() => '')(fromNullable(virtualFiles[path])),
+  readFileSync: (path: string): string => getOrElseOption(() => '')(fromNullable(virtualFiles[path])),
 }));
 
 type ViolationLike = { readonly rule: string; readonly severity: string; readonly message: string };

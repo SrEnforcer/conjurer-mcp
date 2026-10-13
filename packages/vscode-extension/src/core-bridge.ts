@@ -57,7 +57,7 @@ const tryBuildFromPath = (
 
 export const createCoreBridge = (out: vscode.OutputChannel): CoreBridge => {
   // 1. Standard resolution: conjurer-spec npm package or 4-levels-up sibling.
-  const pathOpt = resolveSpecPath();
+  const pathOpt = resolveSpecPath(process.env);
   if (isSome(pathOpt)) {
     const result = tryBuildFromPath(pathOpt.value, out);
     if (result !== undefined) return result;

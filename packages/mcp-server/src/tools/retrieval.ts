@@ -7,7 +7,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { lookup, search, listAll, readSection, readGrimoire, parse, buildWorkspaceSnapshot, VALIDATION_RULE_DESCRIPTIONS, collectSymbolRefs } from '@conjurer/core';
 import type { SymbolIndex, SpecReader, EdnNode, EdnList } from '@conjurer/core';
-import { isSome, isErr, fromNullable, getOrElse, mapO, intoMap } from '@tsfpp/prelude';
+import { isSome, isErr, fromNullable, getOrElseOption, mapOption, intoMap } from '@tsfpp/prelude';
 
 /**
  * Dependencies for retrieval handlers.
@@ -77,9 +77,9 @@ const handleExamples = (ctx: RetrievalContext, symbol: string, count: number | u
   const gResult = readGrimoire(ctx.reader, rec.value.grimoire);
   if (isErr(gResult)) return toContent(gResult.error);
   const section = grimoireSymbolSection(gResult.value, symbol);
-  const blocks = getOrElse<ReadonlyArray<string>>(() => [])(fromNullable(section.match(/```[a-z]*\n[\s\S]*?```/g)));
+  const blocks = getOrElseOption<ReadonlyArray<string>>(() => [])(fromNullable(section.match(/```[a-z]*\n[\s\S]*?```/g)));
   const stripped = blocks.map((b) => b.replace(/^```[a-z]*\n/, '').replace(/```$/, ''));
-  const limited = getOrElse<ReadonlyArray<string>>(() => stripped)(mapO((c: number) => stripped.slice(0, c))(fromNullable(count)));
+  const limited = getOrElseOption<ReadonlyArray<string>>(() => stripped)(mapOption((c: number) => stripped.slice(0, c))(fromNullable(count)));
   return toContent(limited.join('\n\n'));
 };
 
@@ -113,7 +113,7 @@ const countSymbolRefs = (nodes: ReadonlyArray<EdnNode>): ReadonlyMap<string, num
   const refs = nodes.flatMap((n) => visitNodeForCount(n, false));
   const emptyCounts: Readonly<Record<string, number>> = {};
   const countsBySymbol = refs.reduce((counts, sym) => {
-    const current = getOrElse(() => 0)(fromNullable(counts[sym]));
+    const current = getOrElseOption(() => 0)(fromNullable(counts[sym]));
     return { ...counts, [sym]: current + 1 };
   }, emptyCounts);
   return intoMap(Object.entries(countsBySymbol));
@@ -218,7 +218,7 @@ export const handleExplainForm = (ctx: RetrievalContext, filePath: string, name:
       : { symbol: sym, grimoire: '', synopsis: '', known: false };
   });
 
-  const validationRules = getOrElse<ReadonlyArray<string>>(() => [])(fromNullable(VALIDATION_RULE_DESCRIPTIONS[type]));
+  const validationRules = getOrElseOption<ReadonlyArray<string>>(() => [])(fromNullable(VALIDATION_RULE_DESCRIPTIONS[type]));
 
   return toContent(JSON.stringify({
     form_type: type,
@@ -247,7 +247,7 @@ export const handleTraceSymbol = (ctx: RetrievalContext, symbol: string, filePat
     .flatMap((entry) => {
       const parsed = parse(entry.content);
       if (isErr(parsed)) return [];
-      const count = getOrElse(() => 0)(fromNullable(countSymbolRefs(parsed.value).get(symbol)));
+      const count = getOrElseOption(() => 0)(fromNullable(countSymbolRefs(parsed.value).get(symbol)));
       return count > 0 ? [{ file: entry.path, reference_count: count }] : [];
     });
 

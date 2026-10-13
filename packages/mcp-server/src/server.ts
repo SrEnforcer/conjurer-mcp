@@ -20,7 +20,7 @@ import { registerGrimoireResources } from './resources.js';
 const emptyIndex: SymbolIndex = { symbols: intoMap([]), grimoires: intoMap([]) };
 
 const buildSpecContext = (): { readonly reader: SpecReader; readonly index: SymbolIndex } => {
-  const pathOpt = resolveSpecPath();
+  const pathOpt = resolveSpecPath(process.env);
   if (!isSome(pathOpt)) {
     log('warn', 'conjurer-spec not found; retrieval tools will return errors');
     return { reader: { specPath: '' }, index: emptyIndex };

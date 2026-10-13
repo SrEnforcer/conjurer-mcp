@@ -14,7 +14,7 @@ export type {
   EdnNil,
 } from './edn-parser.js';
 export { parse, tokenize } from './edn-parser.js';
-export type { SpecReader } from './spec-reader.js';
+export type { SpecReader, SpecEnv } from './spec-reader.js';
 export { resolveSpecPath, readGrimoire, readSection } from './spec-reader.js';
 export type { SymbolIndex, SearchOptions } from './symbol-index.js';
 export { lookup, search, listAll, collectSymbolRefs } from './symbol-index.js';

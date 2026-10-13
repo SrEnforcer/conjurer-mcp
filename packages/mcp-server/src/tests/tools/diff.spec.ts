@@ -1,6 +1,6 @@
 /* eslint-disable max-lines-per-function -- DEVIATION(3.4): table-driven assertion blocks are intentionally colocated for diff readability in tests. */
 import { describe, it, expect, vi } from 'vitest';
-import { fromNullable, getOrElse } from '@tsfpp/prelude';
+import { fromNullable, getOrElseOption } from '@tsfpp/prelude';
 import { handleDiffCnj, handleDiffCandidates } from '../../tools/diff.js';
 import { parseFirstToolObject } from './tool-json.js';
 
@@ -55,7 +55,7 @@ const virtualFiles: Readonly<Record<string, string>> = {
 
 vi.mock('node:fs', () => ({
   existsSync: (path: string): boolean => Object.prototype.hasOwnProperty.call(virtualFiles, path),
-  readFileSync: (path: string): string => getOrElse(() => '')(fromNullable(virtualFiles[path])),
+  readFileSync: (path: string): string => getOrElseOption(() => '')(fromNullable(virtualFiles[path])),
 }));
 
 describe('handleDiffCnj', () => {

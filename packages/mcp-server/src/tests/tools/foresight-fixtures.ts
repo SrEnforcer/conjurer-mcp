@@ -1,4 +1,4 @@
-import { fromNullable, getOrElse } from '@tsfpp/prelude';
+import { fromNullable, getOrElseOption } from '@tsfpp/prelude';
 import { vi } from 'vitest';
 
 const CHARTER = '(charter "P" :version "1.0.0" :goals ["g"])';
@@ -138,5 +138,5 @@ const virtualFiles: Readonly<Record<string, string>> = {
 
 vi.mock('node:fs', () => ({
   existsSync: (path: string): boolean => Object.prototype.hasOwnProperty.call(virtualFiles, path),
-  readFileSync: (path: string): string => getOrElse(() => '')(fromNullable(virtualFiles[path])),
+  readFileSync: (path: string): string => getOrElseOption(() => '')(fromNullable(virtualFiles[path])),
 }));

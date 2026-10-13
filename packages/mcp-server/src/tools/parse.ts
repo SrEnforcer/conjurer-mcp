@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { parse, toCnjModel } from '@conjurer/core';
 import type { Charter, CnjTarget, CnjAsset } from '@conjurer/core';
 import type { EdnNode } from '@conjurer/core';
-import { isErr, entriesOfMap, fromNullable, isSome, getOrElse, mapO } from '@tsfpp/prelude';
+import { isErr, entriesOf, fromNullable, isSome, getOrElseOption, mapOption } from '@tsfpp/prelude';
 
 type ToolContent = ReadonlyArray<{ readonly type: 'text'; readonly text: string }>;
 
@@ -16,7 +16,7 @@ const toContent = (text: string): ToolContent => [{ type: 'text', text }];
 const ednToJson = (n: EdnNode): unknown => {
   if (n.type === 'map') {
     return Object.fromEntries(
-      entriesOfMap(n.entries).map(([k, v]: readonly [string, EdnNode]) => [k, ednToJson(v)]),
+      entriesOf(n.entries).map(([k, v]: readonly [string, EdnNode]) => [k, ednToJson(v)]),
     );
   }
   if (n.type === 'list') return n.elements.map(ednToJson);
@@ -32,7 +32,7 @@ const serializeTarget = (t: CnjTarget): Readonly<Record<string, unknown>> => ({
   standard: t.standard,
   produces: t.produces,
   modules: t.modules.map((m) =>
-    Object.fromEntries(entriesOfMap(m).map(([k, v]: readonly [string, EdnNode]) => [k, ednToJson(v)])),
+    Object.fromEntries(entriesOf(m).map(([k, v]: readonly [string, EdnNode]) => [k, ednToJson(v)])),
   ),
   ...(t.from !== undefined ? { from: t.from } : {}),
 });
@@ -44,7 +44,7 @@ const serializeCharter = (c: Charter): Readonly<Record<string, unknown>> => ({
   open: c.open,
   references: c.references,
   decisions: c.decisions.map((d) =>
-    Object.fromEntries(entriesOfMap(d).map(([k, v]: readonly [string, EdnNode]) => [k, ednToJson(v)])),
+    Object.fromEntries(entriesOf(d).map(([k, v]: readonly [string, EdnNode]) => [k, ednToJson(v)])),
   ),
 });
 
@@ -56,7 +56,7 @@ const readSrc = (
   filePath: string | undefined,
   content: string | undefined,
 ): { readonly src: string; readonly file: string } | undefined => {
-  const inlineInput = mapO((src: string) => ({ src, file: '<inline>' }))(fromNullable(content));
+  const inlineInput = mapOption((src: string) => ({ src, file: '<inline>' }))(fromNullable(content));
   if (isSome(inlineInput)) return inlineInput.value;
   const pathOpt = fromNullable(filePath);
   if (isSome(pathOpt) && existsSync(pathOpt.value)) {
@@ -102,15 +102,15 @@ export const handleReadCharter = (
 ): ToolContent => {
   const input = readSrc(filePath, undefined);
   if (input === undefined) {
-    return toContent(`File not found: ${getOrElse(() => '')(fromNullable(filePath))}`);
+    return toContent(`File not found: ${getOrElseOption(() => '')(fromNullable(filePath))}`);
   }
   const parsed = parse(input.src);
   if (isErr(parsed)) return toContent(`Parse error: ${parsed.error.message}`);
   const doc = toCnjModel(parsed.value, input.file);
   if (isErr(doc)) return toContent(`Model error: ${doc.error}`);
   const full = serializeCharter(doc.value.charter);
-  const filtered = getOrElse<Readonly<Record<string, unknown>>>(() => full)(
-    mapO((fieldList: ReadonlyArray<string>) => (
+  const filtered = getOrElseOption<Readonly<Record<string, unknown>>>(() => full)(
+    mapOption((fieldList: ReadonlyArray<string>) => (
       fieldList.length > 0
         ? Object.fromEntries(Object.entries(full).filter(([k]) => fieldList.includes(k)))
         : full

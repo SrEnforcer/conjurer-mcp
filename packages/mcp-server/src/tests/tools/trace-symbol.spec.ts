@@ -1,7 +1,7 @@
 /* eslint-disable max-lines-per-function -- DEVIATION(3.4): cohesive symbol-trace scenario assertions are intentionally grouped. */
 /* eslint-disable functional/prefer-readonly-type -- DEVIATION(2.2): concise inline shape annotations in tests improve intent visibility. */
 import { describe, it, expect, vi } from 'vitest';
-import { intoMap, fromNullable, getOrElse } from '@tsfpp/prelude';
+import { intoMap, fromNullable, getOrElseOption } from '@tsfpp/prelude';
 import type { SymbolIndex, SpecReader, SymbolRecord, GrimoireRef } from '@conjurer/core';
 import { handleTraceSymbol } from '../../tools/retrieval.js';
 import type { RetrievalContext } from '../../tools/retrieval.js';
@@ -36,7 +36,7 @@ const virtualFiles: Readonly<Record<string, string>> = {
 
 vi.mock('node:fs', () => ({
   existsSync: (path: string): boolean => Object.prototype.hasOwnProperty.call(virtualFiles, path),
-  readFileSync: (path: string): string => getOrElse(() => '')(fromNullable(virtualFiles[path])),
+  readFileSync: (path: string): string => getOrElseOption(() => '')(fromNullable(virtualFiles[path])),
   readdirSync: (): ReadonlyArray<string> => [],
 }));
 

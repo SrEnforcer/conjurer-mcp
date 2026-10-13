@@ -5,3 +5,5 @@ allowBuilds:
   esbuild: true
   keytar: true
   msw: true
+minimumReleaseAgeExclude:
+  - '@tsfpp/*'

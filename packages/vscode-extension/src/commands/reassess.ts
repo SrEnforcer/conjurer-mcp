@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import { some, none, isSome } from '@tsfpp/prelude';
+import type { Option } from '@tsfpp/prelude';
 
 const SCORE_DIMS = ['feasibility', 'elegance', 'containment', 'value'] as const;
 type ScoreDim = typeof SCORE_DIMS[number];
@@ -68,17 +70,23 @@ const buildHoistBlock = (id: string, into: string, note: string): string =>
     `  :note     "${note.replace(/"/g, '\\"')}")`,
   ].join('\n');
 
+/** Parses input-box text into a whole score from 1 to 10; none for anything else. */
+const mkScore = (raw: string): Option<number> => {
+  const text = raw.trim();
+  if (!/^\d{1,2}$/.test(text)) return none;
+  const n = Number(text);
+  return n >= 1 && n <= 10 ? some(n) : none;
+};
+
 const askScore = async (dim: ScoreDim, current: number): Promise<number | undefined> => {
   const raw = await vscode.window.showInputBox({
     prompt: `Score for ${dim} (1–10, current: ${current})`,
     value: String(current),
-    validateInput: (v) => {
-      const n = parseInt(v, 10);
-      return isNaN(n) || n < 1 || n > 10 ? 'Enter a number 1–10' : undefined;
-    },
+    validateInput: (v) => (isSome(mkScore(v)) ? undefined : 'Enter a number 1–10'),
   });
   if (raw === undefined) return undefined;
-  return parseInt(raw, 10);
+  const score = mkScore(raw);
+  return isSome(score) ? score.value : undefined;
 };
 
 const collectScores = async (
