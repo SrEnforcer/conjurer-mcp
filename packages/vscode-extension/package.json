@@ -15,7 +15,7 @@
   "type": "module",
   "main": "./dist/extension.js",
   "engines": {
-    "node": ">=18.0.0",
+    "node": ">=20.0.0",
     "vscode": "^1.100.0"
   },
   "activationEvents": [
@@ -83,8 +83,8 @@
   },
   "scripts": {
     "build": "pnpm run build:prod",
-    "build:dev": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --platform=node --format=esm --target=node18",
-    "build:prod": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --platform=node --format=esm --target=node18 --minify",
+    "build:dev": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --platform=node --format=esm --target=node20",
+    "build:prod": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --platform=node --format=esm --target=node20 --minify",
     "package": "pnpm run build:prod && vsce package --no-dependencies",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",

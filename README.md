@@ -14,7 +14,7 @@ The server retrieves, parses, validates and plans. It contains no language model
 
 ## Getting started
 
-Requires Node.js 18 or later and pnpm 10.
+Requires Node.js 20 or later and pnpm 10.
 
 ```sh
 pnpm install
@@ -101,4 +101,4 @@ The design lives in `design/` as `.cnj` files and is the source of truth; `.clau
 
 ## Releases
 
-Releases are cut by [release-please](https://github.com/googleapis/release-please) from [Conventional Commits](https://www.conventionalcommits.org) on `main`. One version covers the whole monorepo; tags read `vX.Y.Z`, and the changes are listed in `CHANGELOG.md`.
+Releases are cut by [release-please](https://github.com/googleapis/release-please) from [Conventional Commits](https://www.conventionalcommits.org) on `main`. One version covers the whole monorepo; tags read `vX.Y.Z`, and the changes are listed in `CHANGELOG.md`. Each release carries the packaged extension (`conjurer-mcp-X.Y.Z.vsix`) as an asset; install it with **Extensions: Install from VSIX…**.
