@@ -1,3 +1,8 @@
+---
+name: trunk-init-repo
+description: trunk-init-repo
+disable-model-invocation: true
+---
 # Initialize git repository
 
 Set up a clean git repository for this TSF++ project with a `main` branch, a

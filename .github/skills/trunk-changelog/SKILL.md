@@ -1,3 +1,8 @@
+---
+name: trunk-changelog
+description: trunk-changelog
+disable-model-invocation: true
+---
 # Write changelog entry
 
 Inspect the current working tree, derive the correct conventional commit message,
