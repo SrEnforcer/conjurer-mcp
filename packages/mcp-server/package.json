@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
     "test": "vitest run",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "check:design": "node scripts/check-design.mjs"
   },
   "dependencies": {
     "@conjurer/core": "workspace:*",

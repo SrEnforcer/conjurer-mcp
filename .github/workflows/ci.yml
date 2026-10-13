@@ -21,8 +21,17 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
+      - name: Lockfile fetches git dependencies over https
+        # pnpm can rewrite a GitHub dependency to git@github.com, which needs an
+        # SSH key the runner does not have.
+        run: |
+          if grep -n 'git@github.com' pnpm-lock.yaml; then
+            echo "::error file=pnpm-lock.yaml::git dependency resolved over SSH; use https://github.com/..."
+            exit 1
+          fi
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+      - run: pnpm check:design

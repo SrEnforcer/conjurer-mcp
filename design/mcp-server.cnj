@@ -280,7 +280,8 @@
                 Search uses readdirSync with recursive:true (Node 18.17+ / @types/node 20).
                 Pure — no workspace state or spec lookup. Deferral resolved: workspace-state.ts
                 is in production; the filesystem walk pattern is established."}
-    {:date "2026-06-10"
+    {:id :lens-foresight-health-2026-06-10
+     :date "2026-06-10"
      :decision "lens_foresight_health implemented as a new Cluster-F tool (planned status resolved).
                 Five pure diagnostic checks over workspace candidates and hoists:
                 (1) stale_candidates — active, no f/reassess history, days_since_added > stale_days (default 30);

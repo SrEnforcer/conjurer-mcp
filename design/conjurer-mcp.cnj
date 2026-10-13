@@ -673,6 +673,18 @@
              existing validate_cnj tooling. Implemented with readdirSync recursive walk
              and suffix-based module matching (catches tools/retrieval.ts-style paths).")
 
+;; ── lens-foresight-health: hoisted 2026-06-10 — see mcp-server.cnj spell.
+
+(f/hoist :of :lens-foresight-health
+  :date     "2026-06-10"
+  :into     :decision/lens-foresight-health-2026-06-10
+  :outcomes [:lens-foresight-health-registered :foresight-tools-extended]
+  :note     "All three conditions met: CnjReassessment, CnjCandidateForm.history and
+             CnjHoist landed as model types the same day, and the backlog held 12
+             candidates. Implemented in tools/foresight.ts. The hoist itself was
+             recorded on 2026-10-13, when lens_foresight_health reported the
+             candidate as still :planned.")
+
 (f/hoist :of :materialise_plan
   :date     "2026-06-12"
   :into     :decision/materialise_plan-2026-06-12
@@ -792,7 +804,7 @@
   :label   "lens_foresight_health — backlog maintenance diagnostics"
   :cluster :cluster-foresight
   :added   "2026-06-10"
-  :status  :planned
+  :status  :hoisted
   :scores  {:feasibility 7 :elegance 9 :containment 9 :value 8}
   :rationale "The grimoire's best-practices section names its own failure modes by name:
               the rotting backlog, rationale-free deferral, orphaned hoists. These are
