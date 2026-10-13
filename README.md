@@ -14,7 +14,7 @@ The server retrieves, parses, validates and plans. It contains no language model
 
 ## Getting started
 
-Requires Node.js 18 or later and pnpm 10.
+Requires Node.js 20 or later and pnpm 10.
 
 ```sh
 pnpm install
