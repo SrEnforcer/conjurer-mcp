@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { intoMap } from '@tsfpp/prelude';
 import type { CnjCandidateForm } from '@conjurer/core';
-import { extractFormContent, buildRefinePrompt, buildResolveOpenPrompt, buildRefreshGoalsPrompt } from '../commands/refine.js';
+import { extractFormContent, buildRefinePrompt, buildResolveOpenPrompt, buildRefreshGoalsPrompt } from '../commands/refine-prompts.js';
 
 const LINES = [
   '(charter "My Project" :version "1.0.0" :goals ["build something"]',
