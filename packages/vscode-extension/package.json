@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/preTHOR/cnj-mcp"
+    "url": "https://github.com/SrEnforcer/conjurer-mcp"
   },
   "categories": [
     "Other"
@@ -92,8 +92,7 @@
   },
   "dependencies": {
     "@conjurer/core": "workspace:*",
-    "@tsfpp/prelude": "^1.7.0",
-    "vite": "^8.0.16"
+    "@tsfpp/prelude": "^1.7.0"
   },
   "devDependencies": {
     "@tsfpp/eslint-config": "^1.0.1",

@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@tsfpp/prelude": "^1.7.0",
-    "conjurer-spec": "file:../../../conjurer-spec"
+    "conjurer-spec": "git+https://github.com/SrEnforcer/conjurer.git#v1.3.0"
   },
   "devDependencies": {
     "@tsfpp/eslint-config": "^1.0.1",
