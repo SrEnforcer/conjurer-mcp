@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { parse, toCnjModel } from '@conjurer/core';
 import type { SymbolIndex, CnjCandidateForm, CnjDocument } from '@conjurer/core';
-import { isErr } from '@tsfpp/prelude';
+import { isErr, match } from '@tsfpp/prelude';
 
 const CHARTER_RE = /^\s*\(charter\s/;
 const SYMBOL_CALL_RE = /\(([a-zA-Z][a-zA-Z0-9_\-/]*)/g;
@@ -194,7 +194,7 @@ const parseDocumentModel = (
   const parsed = parse(document.getText());
   if (isErr(parsed)) return undefined;
   const modelResult = toCnjModel(parsed.value, document.fileName);
-  return isErr(modelResult) ? undefined : modelResult.value;
+  return match((): CnjDocument | undefined => undefined, (doc: CnjDocument): CnjDocument | undefined => doc)(modelResult);
 };
 
 const makeCharterRefLenses = (

@@ -1,4 +1,4 @@
-import { ok, err, intoMap, isSome, fromNullable, absurd } from '@tsfpp/prelude';
+import { ok, err, intoMap, isSome, fromNullable, absurd, matchOption } from '@tsfpp/prelude';
 import type { Result } from '@tsfpp/prelude';
 import type { EdnNode } from './edn-parser.js';
 import { bareName } from './references.js';
@@ -150,7 +150,7 @@ const getScores = (m: ReadonlyMap<string, EdnNode>, key: string): ReadonlyMap<st
 
 const parseCharter = (elems: ReadonlyArray<EdnNode>): Charter => {
   const titleNode = fromNullable(elems[1]);
-  const title = isSome(titleNode) ? nodeStr(titleNode.value) : '';
+  const title = matchOption(() => '', nodeStr)(titleNode);
   const kv = kvMap(elems, 2);
   return {
     title,
@@ -263,7 +263,7 @@ const parseDomainForm = (elems: ReadonlyArray<EdnNode>): CnjDomainForm | undefin
   const head = fromNullable(elems[0]);
   if (!isSome(head) || head.value.type !== 'symbol') return undefined;
   const nameNode = fromNullable(elems[1]);
-  const name = isSome(nameNode) ? nodeStr(nameNode.value) : '';
+  const name = matchOption(() => '', nodeStr)(nameNode);
   const kv = kvMap(elems, 2);
   return {
     formType: head.value.value,

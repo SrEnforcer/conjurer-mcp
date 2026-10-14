@@ -17,12 +17,12 @@
   "dependencies": {
     "@conjurer/core": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@tsfpp/boundary": "^2.1.0",
     "@tsfpp/prelude": "^2.5.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tsfpp/agents": "^2.6.0",
+    "@tsfpp/boundary": "^2.1.0",
     "@tsfpp/eslint-config": "^2.1.0",
     "@tsfpp/mcp-server": "^1.0.4",
     "@tsfpp/standard": "^5.0.1",

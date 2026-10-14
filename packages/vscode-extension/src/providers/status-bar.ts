@@ -3,7 +3,7 @@ import { basename } from 'node:path';
 import * as vscode from 'vscode';
 import { buildWorkspaceSnapshot, computeForesightHealth, todayISO } from '@conjurer/core';
 import type { WorkspaceSnapshot, CnjCandidateForm, CnjHoist } from '@conjurer/core';
-import { isErr } from '@tsfpp/prelude';
+import { match } from '@tsfpp/prelude';
 
 export type HealthIssueKind = 'unreadable_file' | 'stale' | 'thin_rationale' | 'orphaned_hoist' | 'high_score_no_conditions';
 
@@ -40,7 +40,7 @@ export const computeHealthIssues = (snapshot: WorkspaceSnapshot, today: string =
 
 const issuesFor = (fileName: string): ReadonlyArray<HealthIssue> => {
   const snapshotRes = buildWorkspaceSnapshot(fileName);
-  return isErr(snapshotRes) ? [] : computeHealthIssues(snapshotRes.value);
+  return match((): ReadonlyArray<HealthIssue> => [], (snapshot: WorkspaceSnapshot) => computeHealthIssues(snapshot))(snapshotRes);
 };
 
 const plural = (n: number): string => (n === 1 ? '' : 's');

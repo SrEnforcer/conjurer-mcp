@@ -7,7 +7,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { parse, toCnjModel, describeCnjModelError, validateCnj, collectSymbolRefs, isCnjFileReference } from '@conjurer/core';
 import type { ValidationMode, SymbolIndex, EdnNode, CnjDocument } from '@conjurer/core';
-import { isErr, isDefined } from '@tsfpp/prelude';
+import { isErr, isDefined, match } from '@tsfpp/prelude';
 
 type ToolContent = ReadonlyArray<{ readonly type: 'text'; readonly text: string }>;
 
@@ -37,7 +37,7 @@ const loadReferencedDocs = (filePath: string, references: ReadonlyArray<string>)
       const ast = parse(readFileSync(path, 'utf8'));
       if (isErr(ast)) return [];
       const model = toCnjModel(ast.value, path);
-      return isErr(model) ? [] : [model.value];
+      return match((): ReadonlyArray<CnjDocument> => [], (doc: CnjDocument) => [doc])(model);
     });
 
 /** Options for validate_cnj: the mode, strictness, and the symbol index when one is loaded. */

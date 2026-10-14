@@ -12,8 +12,8 @@ import {
   buildWorkspaceSnapshot, describeWorkspaceError, effectiveScores, computeForesightHealth, candidateTotal, daysBetween, todayISO,
   ACTIVE_CANDIDATE_STATUSES,
 } from '@conjurer/core';
-import type { CnjCandidateForm, CnjHoist, WorkspaceSnapshot, ForesightHealthOptions } from '@conjurer/core';
-import { isErr, isDefined } from '@tsfpp/prelude';
+import type { CnjCandidateForm, CnjHoist, WorkspaceSnapshot, WorkspaceError, ForesightHealthOptions } from '@conjurer/core';
+import { isDefined, match } from '@tsfpp/prelude';
 
 type ToolContent = ReadonlyArray<{ readonly type: 'text'; readonly text: string }>;
 
@@ -26,7 +26,10 @@ const readSnapshot = (file: string): WorkspaceSnapshot | string => {
   if (!existsSync(abs)) return `File not found: ${file}`;
 
   const snapshotRes = buildWorkspaceSnapshot(abs);
-  return isErr(snapshotRes) ? `Workspace error: ${describeWorkspaceError(snapshotRes.error)}` : snapshotRes.value;
+  return match<WorkspaceSnapshot, WorkspaceError, WorkspaceSnapshot | string>(
+    (e) => `Workspace error: ${describeWorkspaceError(e)}`,
+    (snapshot) => snapshot,
+  )(snapshotRes);
 };
 
 const allCandidates = (snapshot: WorkspaceSnapshot): ReadonlyArray<CnjCandidateForm> =>

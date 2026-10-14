@@ -5,7 +5,7 @@
  * to a form of a given kind is a keyword namespaced by that kind: `:decision/<id>`,
  * `:target/<name>`, `:spell/<name>`. Pure — no I/O.
  */
-import { none, some, isSome, intoMap } from '@tsfpp/prelude';
+import { none, isSome, intoMap, fromNullable, findOption, orElseOption, mapOption } from '@tsfpp/prelude';
 import type { Option } from '@tsfpp/prelude';
 import type { EdnNode } from './edn-parser.js';
 import type { CnjDocument } from './cnj-model.js';
@@ -33,10 +33,8 @@ const KINDS: ReadonlyArray<ReferenceKind> = ['decision', 'target', 'asset', 'spe
 const LEGACY_KINDS: ReadonlyMap<string, ReferenceKind> = intoMap([['charter-decision', 'decision']]);
 
 const toKind = (prefix: string): Option<ReferenceKind> => {
-  const current = KINDS.find((kind) => kind === prefix);
-  if (current !== undefined) return some(current);
-  const legacy = LEGACY_KINDS.get(prefix);
-  return legacy !== undefined ? some(legacy) : none;
+  const current = findOption((kind: ReferenceKind) => kind === prefix)(KINDS);
+  return orElseOption(() => fromNullable(LEGACY_KINDS.get(prefix)))(current);
 };
 
 /**
@@ -50,7 +48,7 @@ export const parseReference = (raw: string): Option<FormReference> => {
   const slash = text.indexOf('/');
   if (slash <= 0 || slash === text.length - 1) return none;
   const kind = toKind(text.substring(0, slash));
-  return isSome(kind) ? some({ kind: kind.value, name: text.substring(slash + 1) }) : none;
+  return mapOption((k: ReferenceKind): FormReference => ({ kind: k, name: text.substring(slash + 1) }))(kind);
 };
 
 /**
