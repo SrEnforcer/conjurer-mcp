@@ -1,4 +1,4 @@
-import { ok, err, isErr, intoMap } from '@tsfpp/prelude';
+import { ok, err, isErr, intoMap, isFiniteNumber } from '@tsfpp/prelude';
 import type { Result } from '@tsfpp/prelude';
 
 export type TokenType =
@@ -225,10 +225,36 @@ const COLLECTIONS: ReadonlyMap<string, BrCtx> = intoMap<string, BrCtx>([
   ['lset', { open: 'lset', close: 'rbrace', delimiter: 'set' }],
 ]);
 
-/** Number token to value; a ratio such as `1/5` becomes its quotient. */
-const numValue = (text: string): number => {
-  const [num, den] = text.split('/');
-  return den === undefined ? Number(num) : Number(num) / Number(den);
+const clip = (text: string): string => (text.length > 24 ? `${text.slice(0, 24)}…` : text);
+
+/**
+ * Number token to a finite value; a ratio such as `1/5` becomes its quotient.
+ * The lexer admits only `-?digits` with an optional `.digits` or `/digits`. A decimal must be
+ * finite. An integer, and each part of a ratio, must be a safe integer (within ±(2^53 − 1)),
+ * because past that a double silently rounds it to a neighbour. Anything else is a parse
+ * error rather than NaN, Infinity or a changed value in the tree (TSF++ Rule 1.13).
+ */
+const numValue = (t: Token): Result<number, ParseError> => {
+  const fail = (message: string): Result<number, ParseError> => err(mkErr(message, t.line, t.column));
+  if (t.value.includes('.')) {
+    const x = Number.parseFloat(t.value);
+    return isFiniteNumber(x) ? ok(x) : fail(`Number '${clip(t.value)}' is out of range`);
+  }
+  const [num = '', den] = t.value.split('/');
+  const label = den === undefined ? 'Integer' : 'Ratio';
+  const n = Number.parseFloat(num);
+  const d = den === undefined ? 1 : Number.parseFloat(den);
+  if (!Number.isSafeInteger(n) || !Number.isSafeInteger(d)) {
+    return fail(`${label} '${clip(t.value)}' cannot be read exactly: integers must be within ±(2^53 − 1)`);
+  }
+  return d === 0 ? fail(`Ratio '${clip(t.value)}' divides by zero`) : ok(n / d);
+};
+
+const parseNumber = (s: PS): PR<EdnNode> => {
+  const t = pCur(s);
+  const v = numValue(t);
+  if (isErr(v)) return err(v.error);
+  return ok({ value: { type: 'number', value: v.value, line: t.line, column: t.column }, next: pAdv(s) });
 };
 
 const parseExpr = (s: PS): PR<EdnNode> => {
@@ -240,7 +266,7 @@ const parseExpr = (s: PS): PR<EdnNode> => {
   if (t.type === 'keyword')  return ok({ value: { type: 'keyword', value: t.value, line: t.line, column: t.column }, next: pAdv(s) });
   if (t.type === 'symbol')   return ok({ value: { type: 'symbol',  value: t.value, line: t.line, column: t.column }, next: pAdv(s) });
   if (t.type === 'string')   return ok({ value: { type: 'string',  value: unquote(t.value), line: t.line, column: t.column }, next: pAdv(s) });
-  if (t.type === 'number')   return ok({ value: { type: 'number',  value: numValue(t.value), line: t.line, column: t.column }, next: pAdv(s) });
+  if (t.type === 'number')   return parseNumber(s);
   if (t.type === 'boolean')  return ok({ value: { type: 'boolean', value: t.value === 'true', line: t.line, column: t.column }, next: pAdv(s) });
   if (t.type === 'nil')      return ok({ value: { type: 'nil', line: t.line, column: t.column }, next: pAdv(s) });
   return err(mkErr(`Unexpected token: ${t.type}`, t.line, t.column));
