@@ -5,7 +5,7 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { dirname, resolve as resolvePath } from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { parse, toCnjModel, validateCnj, collectSymbolRefs } from '@conjurer/core';
+import { parse, toCnjModel, describeCnjModelError, validateCnj, collectSymbolRefs } from '@conjurer/core';
 import type { ValidationMode, SymbolIndex, EdnNode, CnjDocument } from '@conjurer/core';
 import { isErr, isDefined } from '@tsfpp/prelude';
 
@@ -54,7 +54,7 @@ export const handleValidate = (filePath: string, request: ValidateRequest = {}):
   const parsed = parse(src);
   if (isErr(parsed)) return toContent(`Parse error: ${parsed.error.message}`);
   const doc = toCnjModel(parsed.value, filePath);
-  if (isErr(doc)) return toContent(`Model error: ${doc.error}`);
+  if (isErr(doc)) return toContent(`Model error: ${describeCnjModelError(doc.error)}`);
   const symbolRefs = isDefined(index) ? collectSymbolRefs(parsed.value) : undefined;
   // A URL reference is not a file to read; only local paths are checked.
   const referencesStatus = doc.value.charter.references.map((ref) => ({
@@ -125,7 +125,7 @@ export const handleLintDiskConsistency = (
   const parsed = parse(src);
   if (isErr(parsed)) return toContent(`Parse error: ${parsed.error.message}`);
   const docRes = toCnjModel(parsed.value, abs);
-  if (isErr(docRes)) return toContent(`Model error: ${docRes.error}`);
+  if (isErr(docRes)) return toContent(`Model error: ${describeCnjModelError(docRes.error)}`);
   const doc = docRes.value;
 
   const searchRoot = resolvePath(rootDir ?? dirname(abs));

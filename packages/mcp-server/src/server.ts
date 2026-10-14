@@ -3,7 +3,7 @@
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { resolveSpecPath, buildIndex } from '@conjurer/core';
+import { resolveSpecPath, buildIndex, describeIndexError } from '@conjurer/core';
 import type { SpecReader, SymbolIndex } from '@conjurer/core';
 import { isSome, isOk, intoMap } from '@tsfpp/prelude';
 import { log, logError } from './logging.js';
@@ -28,7 +28,7 @@ const buildSpecContext = (): { readonly reader: SpecReader; readonly index: Symb
   const reader: SpecReader = { specPath: pathOpt.value };
   const indexResult = buildIndex(reader);
   if (!isOk(indexResult)) {
-    logError('Failed to build symbol index', indexResult.error);
+    logError('Failed to build symbol index', describeIndexError(indexResult.error));
     return { reader, index: emptyIndex };
   }
   return { reader, index: indexResult.value };

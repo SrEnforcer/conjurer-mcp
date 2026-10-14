@@ -4,7 +4,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { parse, toCnjModel, effectiveScores } from '@conjurer/core';
+import { parse, toCnjModel, describeCnjModelError, effectiveScores } from '@conjurer/core';
 import type { Charter, CnjDocument, CnjCandidateForm, CnjHoist } from '@conjurer/core';
 import type { EdnNode } from '@conjurer/core';
 import { isErr, entriesOf, intoMap } from '@tsfpp/prelude';
@@ -92,7 +92,7 @@ const readDoc = (filePath: string): CnjDocument | string => {
   const parsed = parse(src);
   if (isErr(parsed)) return `Parse error in ${filePath}: ${parsed.error.message}`;
   const doc = toCnjModel(parsed.value, filePath);
-  if (isErr(doc)) return `Model error in ${filePath}: ${doc.error}`;
+  if (isErr(doc)) return `Model error in ${filePath}: ${describeCnjModelError(doc.error)}`;
   return doc.value;
 };
 

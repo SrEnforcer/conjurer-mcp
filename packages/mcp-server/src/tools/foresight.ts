@@ -9,7 +9,7 @@ import { existsSync } from 'node:fs';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import {
-  buildWorkspaceSnapshot, effectiveScores, computeForesightHealth, candidateTotal, daysBetween, todayISO,
+  buildWorkspaceSnapshot, describeWorkspaceError, effectiveScores, computeForesightHealth, candidateTotal, daysBetween, todayISO,
   ACTIVE_CANDIDATE_STATUSES,
 } from '@conjurer/core';
 import type { CnjCandidateForm, CnjHoist, WorkspaceSnapshot, ForesightHealthOptions } from '@conjurer/core';
@@ -26,7 +26,7 @@ const readSnapshot = (file: string): WorkspaceSnapshot | string => {
   if (!existsSync(abs)) return `File not found: ${file}`;
 
   const snapshotRes = buildWorkspaceSnapshot(abs);
-  return isErr(snapshotRes) ? `Workspace error: ${snapshotRes.error}` : snapshotRes.value;
+  return isErr(snapshotRes) ? `Workspace error: ${describeWorkspaceError(snapshotRes.error)}` : snapshotRes.value;
 };
 
 const allCandidates = (snapshot: WorkspaceSnapshot): ReadonlyArray<CnjCandidateForm> =>

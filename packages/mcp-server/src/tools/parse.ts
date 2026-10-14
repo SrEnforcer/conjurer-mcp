@@ -4,7 +4,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { parse, toCnjModel } from '@conjurer/core';
+import { parse, toCnjModel, describeCnjModelError } from '@conjurer/core';
 import type { Charter, CnjTarget, CnjAsset } from '@conjurer/core';
 import type { EdnNode } from '@conjurer/core';
 import { isErr, entriesOf, fromNullable, isSome, getOrElseOption, mapOption } from '@tsfpp/prelude';
@@ -81,7 +81,7 @@ export const handleParseCnj = (
   const parsed = parse(input.src);
   if (isErr(parsed)) return toContent(`Parse error: ${parsed.error.message}`);
   const doc = toCnjModel(parsed.value, input.file);
-  if (isErr(doc)) return toContent(`Model error: ${doc.error}`);
+  if (isErr(doc)) return toContent(`Model error: ${describeCnjModelError(doc.error)}`);
   return toContent(JSON.stringify({
     charter: serializeCharter(doc.value.charter),
     assets: doc.value.assets.map(serializeAsset),
@@ -107,7 +107,7 @@ export const handleReadCharter = (
   const parsed = parse(input.src);
   if (isErr(parsed)) return toContent(`Parse error: ${parsed.error.message}`);
   const doc = toCnjModel(parsed.value, input.file);
-  if (isErr(doc)) return toContent(`Model error: ${doc.error}`);
+  if (isErr(doc)) return toContent(`Model error: ${describeCnjModelError(doc.error)}`);
   const full = serializeCharter(doc.value.charter);
   const filtered = getOrElseOption<Readonly<Record<string, unknown>>>(() => full)(
     mapOption((fieldList: ReadonlyArray<string>) => (

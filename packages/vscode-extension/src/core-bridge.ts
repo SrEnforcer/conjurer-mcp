@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { resolveSpecPath, buildIndex } from '@conjurer/core';
+import { resolveSpecPath, buildIndex, describeIndexError } from '@conjurer/core';
 import type { SymbolIndex, SpecReader } from '@conjurer/core';
 import { isSome, isOk, intoMap } from '@tsfpp/prelude';
 
@@ -48,7 +48,7 @@ const tryBuildFromPath = (
   const reader: SpecReader = { specPath };
   const indexResult = buildIndex(reader);
   if (!isOk(indexResult)) {
-    out.appendLine(`[conjurer] index build failed at ${specPath}: ${indexResult.error}`);
+    out.appendLine(`[conjurer] index build failed at ${specPath}: ${describeIndexError(indexResult.error)}`);
     return undefined;
   }
   out.appendLine(`[conjurer] spec loaded from ${specPath} — ${indexResult.value.symbols.size} symbols`);

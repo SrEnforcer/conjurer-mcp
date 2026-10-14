@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { parse, toCnjModel } from '@conjurer/core';
+import { parse, toCnjModel, describeCnjModelError } from '@conjurer/core';
 import { isErr } from '@tsfpp/prelude';
 import {
   extractFormContent, buildRefinePrompt, buildResolveOpenPrompt,
@@ -50,7 +50,7 @@ const doResolveOpen = async (): Promise<void> => {
   }
   const doc = toCnjModel(parsed.value, editor.document.fileName);
   if (isErr(doc)) {
-    void vscode.window.showErrorMessage(`Model error: ${doc.error}`);
+    void vscode.window.showErrorMessage(`Model error: ${describeCnjModelError(doc.error)}`);
     return;
   }
   const { open } = doc.value.charter;
@@ -96,7 +96,7 @@ const doRefreshGoals = async (): Promise<void> => {
   }
   const doc = toCnjModel(parsed.value, editor.document.fileName);
   if (isErr(doc)) {
-    void vscode.window.showErrorMessage(`Model error: ${doc.error}`);
+    void vscode.window.showErrorMessage(`Model error: ${describeCnjModelError(doc.error)}`);
     return;
   }
   const { goals } = doc.value.charter;

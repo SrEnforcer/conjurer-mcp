@@ -9,7 +9,10 @@ import { resolve as resolvePath } from 'node:path';
 import { readFileSync, existsSync } from 'node:fs';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { parse, toCnjModel, runMaterialisePreflight, buildWorkspaceSnapshot, topoOrder, computeContextKey } from '@conjurer/core';
+import {
+  parse, toCnjModel, runMaterialisePreflight, buildWorkspaceSnapshot, topoOrder, computeContextKey,
+  describeCnjModelError, describePreflightError, describeWorkspaceError,
+} from '@conjurer/core';
 import type { EdnNode } from '@conjurer/core';
 import { isErr, fromNullable, getOrElseOption, isSome } from '@tsfpp/prelude';
 
@@ -22,6 +25,7 @@ const toContent = (text: string): ToolContent => [{ type: 'text', text }];
 // DEVIATION(2.2): Adapter cache uses mutable Map for session-lifetime updates.
 // eslint-disable-next-line no-restricted-syntax -- DEVIATION(1.9): Map/Set has no constructor-free equivalent.
 const evaluateCache = new Map<string, string>();
+
 /** Cache key reported when evaluate has neither a file nor a resolve id; fixed so the tool stays pure. */
 const UNSCOPED_CACHE_KEY = 'eval-unscoped';
 
@@ -42,7 +46,7 @@ const inlineResolvePlan = (content: string): ToolContent => {
   const parsed = parse(content);
   if (isErr(parsed)) return toContent(`Parse error: ${parsed.error.message}`);
   const doc = toCnjModel(parsed.value, '<inline>');
-  if (isErr(doc)) return toContent(`Model error: ${doc.error}`);
+  if (isErr(doc)) return toContent(`Model error: ${describeCnjModelError(doc.error)}`);
   const plan = doc.value.targets.map((t, i) => ({
     form: 'target', file: '<inline>', name: t.name, order: i,
     reason: 'context-injection',
@@ -71,7 +75,7 @@ export const handleResolve = (
 
   const abs = resolvePath(filePath);
   const snapshotRes = buildWorkspaceSnapshot(abs);
-  if (isErr(snapshotRes)) return toContent(`Workspace error: ${snapshotRes.error}`);
+  if (isErr(snapshotRes)) return toContent(`Workspace error: ${describeWorkspaceError(snapshotRes.error)}`);
   const snapshot = snapshotRes.value;
 
   const entry = snapshot.files.get(abs);
@@ -148,7 +152,7 @@ export const handleEvaluate = (
 
   const abs = resolvePath(filePath);
   const snapshotRes = buildWorkspaceSnapshot(abs);
-  if (isErr(snapshotRes)) return toContent(`Workspace error: ${snapshotRes.error}`);
+  if (isErr(snapshotRes)) return toContent(`Workspace error: ${describeWorkspaceError(snapshotRes.error)}`);
   const snapshot = snapshotRes.value;
 
   const allFilePaths = Array.from(snapshot.files.keys());
@@ -187,7 +191,7 @@ const handleLintTopology = (workspace: string | undefined = undefined): ToolCont
   const r = runMaterialisePreflight(root);
   if (isErr(r)) {
     return toContent(JSON.stringify(
-      { issues: [{ severity: 'warning', file: root, message: r.error }], summary: { ready: false } },
+      { issues: [{ severity: 'warning', file: root, message: describePreflightError(r.error) }], summary: { ready: false } },
       null, 2,
     ));
   }
@@ -211,7 +215,7 @@ export const handlePreflight = (
   entryFiles: ReadonlyArray<string> | undefined = undefined,
 ): ToolContent => {
   const r = runMaterialisePreflight(folder, projectName, entryFiles);
-  if (isErr(r)) return toContent(r.error);
+  if (isErr(r)) return toContent(describePreflightError(r.error));
   return toContent(JSON.stringify({
     project_name: r.value.projectName,
     package_json_required: r.value.packageJsonRequired,
@@ -243,7 +247,7 @@ const getModuleEntries = (modules: ReadonlyArray<ReadonlyMap<string, EdnNode>>):
 export const handleMaterialisePlan = (filePath: string): ToolContent => {
   const abs = resolvePath(filePath);
   const snapshotRes = buildWorkspaceSnapshot(abs);
-  if (isErr(snapshotRes)) return toContent(`Workspace error: ${snapshotRes.error}`);
+  if (isErr(snapshotRes)) return toContent(`Workspace error: ${describeWorkspaceError(snapshotRes.error)}`);
   const snapshot = snapshotRes.value;
 
   const order = topoOrder(snapshot, abs);

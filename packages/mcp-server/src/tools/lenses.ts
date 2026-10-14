@@ -6,7 +6,7 @@
 import { resolve as resolvePath } from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { buildWorkspaceSnapshot, topoOrder, validateCnj } from '@conjurer/core';
+import { buildWorkspaceSnapshot, describeWorkspaceError, topoOrder, validateCnj } from '@conjurer/core';
 import { isErr, fromNullable, getOrElseOption, intoMap } from '@tsfpp/prelude';
 import type { WorkspaceSnapshot } from '@conjurer/core';
 
@@ -83,7 +83,7 @@ export const handleLensDependencyGraph = (
 ): ToolContent => {
   const abs = resolvePath(filePath);
   const snapshotRes = buildWorkspaceSnapshot(abs);
-  if (isErr(snapshotRes)) return toContent(`Workspace error: ${snapshotRes.error}`);
+  if (isErr(snapshotRes)) return toContent(`Workspace error: ${describeWorkspaceError(snapshotRes.error)}`);
   const snapshot = snapshotRes.value;
 
   const fileOfTarget = targetFiles(snapshot);
@@ -115,7 +115,7 @@ export const handleLensDependencyGraph = (
 export const handleLensOpenQuestions = (filePath: string): ToolContent => {
   const abs = resolvePath(filePath);
   const snapshotRes = buildWorkspaceSnapshot(abs);
-  if (isErr(snapshotRes)) return toContent(`Workspace error: ${snapshotRes.error}`);
+  if (isErr(snapshotRes)) return toContent(`Workspace error: ${describeWorkspaceError(snapshotRes.error)}`);
   const snapshot = snapshotRes.value;
 
   const filesWithOpen = Array.from(snapshot.files.values())
@@ -145,7 +145,7 @@ export const handleLensOpenQuestions = (filePath: string): ToolContent => {
 export const handleWorkspaceSummary = (filePath: string): ToolContent => {
   const abs = resolvePath(filePath);
   const snapshotRes = buildWorkspaceSnapshot(abs);
-  if (isErr(snapshotRes)) return toContent(`Workspace error: ${snapshotRes.error}`);
+  if (isErr(snapshotRes)) return toContent(`Workspace error: ${describeWorkspaceError(snapshotRes.error)}`);
   const snapshot = snapshotRes.value;
 
   const files = Array.from(snapshot.files.values()).map((entry) => {

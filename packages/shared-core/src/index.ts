@@ -14,9 +14,9 @@ export type {
   EdnNil,
 } from './edn-parser.js';
 export { parse, tokenize } from './edn-parser.js';
-export type { SpecReader, SpecEnv } from './spec-reader.js';
-export { resolveSpecPath, readGrimoire, readSection } from './spec-reader.js';
-export type { SymbolIndex, SearchOptions } from './symbol-index.js';
+export type { SpecReader, SpecEnv, GrimoireError } from './spec-reader.js';
+export { resolveSpecPath, readGrimoire, readSection, describeGrimoireError } from './spec-reader.js';
+export type { SymbolIndex, SearchOptions, IndexError } from './symbol-index.js';
 export { lookup, search, listAll, collectSymbolRefs } from './symbol-index.js';
 export type {
   Charter,
@@ -27,8 +27,9 @@ export type {
   CnjHoist,
   CnjCandidateForm,
   CnjDocument,
+  CnjModelError,
 } from './cnj-model.js';
-export { toCnjModel } from './cnj-model.js';
+export { toCnjModel, describeCnjModelError } from './cnj-model.js';
 export { effectiveScores } from './candidate-scores.js';
 export type {
   ValidationMode,
@@ -42,16 +43,19 @@ export {
   validateCnj, checkSymbolUsage, checkReferences, checkFormReferences, checkEnsurePrelude, checkIncantationPrelude, lintConventions,
   VALIDATION_RULE_DESCRIPTIONS,
 } from './validation.js';
-export { buildIndex } from './symbol-index.js';
+export { buildIndex, describeIndexError } from './symbol-index.js';
 export type {
   ResolvedRef,
   UnresolvedRef,
   MissingPath,
   MaterialisePreflightReport,
+  PreflightError,
 } from './preflight-resolver.js';
-export { runMaterialisePreflight } from './preflight-resolver.js';
-export type { ParsedFileEntry, WorkspaceSnapshot, UnresolvedDependency } from './workspace-state.js';
-export { buildWorkspaceSnapshot, topoOrder, computeContextKey } from './workspace-state.js';
+export { runMaterialisePreflight, describePreflightError } from './preflight-resolver.js';
+export type { ParsedFileEntry, WorkspaceSnapshot, UnresolvedDependency, CnjFileError, WorkspaceError } from './workspace-state.js';
+export {
+  buildWorkspaceSnapshot, topoOrder, computeContextKey, describeCnjFileError, describeWorkspaceError,
+} from './workspace-state.js';
 export type { ReferenceKind, FormReference, ReferenceSite } from './references.js';
 export { parseReference, bareName, declaredNames, bindingNames, referenceSites } from './references.js';
 export type {

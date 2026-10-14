@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { parse, toCnjModel, validateCnj } from '@conjurer/core';
+import { parse, toCnjModel, describeCnjModelError, validateCnj } from '@conjurer/core';
 import type { ValidationMode, Violation } from '@conjurer/core';
 import { isErr } from '@tsfpp/prelude';
 
@@ -139,7 +139,7 @@ const validateDocument = (
   }
   const doc = toCnjModel(parsed.value, document.fileName);
   if (isErr(doc)) {
-    const message = `Model error: ${doc.error}`;
+    const message = `Model error: ${describeCnjModelError(doc.error)}`;
     collection.set(document.uri, [mkParseErrDiagnostic(message)]);
     return { _tag: 'error', message };
   }
@@ -154,7 +154,7 @@ export const extractOpenQuestions = (source: string, fileName: string): OpenQues
   const parsed = parse(source);
   if (isErr(parsed)) return { error: `Parse error: ${parsed.error.message}` };
   const doc = toCnjModel(parsed.value, fileName);
-  if (isErr(doc)) return { error: `Model error: ${doc.error}` };
+  if (isErr(doc)) return { error: `Model error: ${describeCnjModelError(doc.error)}` };
   return { questions: doc.value.charter.open };
 };
 

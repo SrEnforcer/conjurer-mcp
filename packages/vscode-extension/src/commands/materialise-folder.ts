@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { runMaterialisePreflight } from '@conjurer/core';
+import { runMaterialisePreflight, describePreflightError } from '@conjurer/core';
 import type { MaterialisePreflightReport } from '@conjurer/core';
 import { isErr } from '@tsfpp/prelude';
 
@@ -51,7 +51,7 @@ const runPreflight = async (channel: vscode.OutputChannel, folderUri?: vscode.Ur
   const projectName = nameInput !== undefined && nameInput.trim().length > 0 ? nameInput.trim() : undefined;
   const result = runMaterialisePreflight(targetUri.fsPath, projectName);
   if (isErr(result)) {
-    void vscode.window.showErrorMessage(`Preflight error: ${result.error}`);
+    void vscode.window.showErrorMessage(`Preflight error: ${describePreflightError(result.error)}`);
     return;
   }
   showPreflightResult(result.value, channel, targetUri.fsPath);

@@ -1,9 +1,9 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { ok, err, none, some, isSome, isErr, intoMap, fromNullable } from '@tsfpp/prelude';
+import { ok, err, none, some, isSome, isErr, intoMap, fromNullable, absurd } from '@tsfpp/prelude';
 import type { Result, Option } from '@tsfpp/prelude';
 import type { SymbolRecord, GrimoireRef } from './types.js';
-import type { EdnNode, EdnMap } from './edn-parser.js';
+import type { EdnNode, EdnMap, ParseError } from './edn-parser.js';
 import { parse } from './edn-parser.js';
 import type { SpecReader } from './spec-reader.js';
 import { parsePrelude } from './prelude.js';
@@ -84,14 +84,35 @@ const parseSymbols = (
   return intoMap(entries);
 };
 
-export const buildIndex = (reader: SpecReader): Result<SymbolIndex, string> => {
+/** Why the symbol index could not be built from `index.edn`. */
+export type IndexError =
+  | { readonly kind: 'index_not_found'; readonly path: string }
+  | { readonly kind: 'index_unparseable'; readonly cause: ParseError }
+  | { readonly kind: 'index_not_a_map' };
+
+/**
+ * Render an index error as the text the server and extension log.
+ *
+ * @param e - The error.
+ * @returns A one-line message.
+ */
+export const describeIndexError = (e: IndexError): string => {
+  switch (e.kind) {
+    case 'index_not_found': return `index.edn not found at ${e.path}`;
+    case 'index_unparseable': return e.cause.message;
+    case 'index_not_a_map': return 'index.edn root must be a map';
+    default: return absurd(e);
+  }
+};
+
+export const buildIndex = (reader: SpecReader): Result<SymbolIndex, IndexError> => {
   const indexPath = resolve(reader.specPath, 'index.edn');
-  if (!existsSync(indexPath)) return err(`index.edn not found at ${indexPath}`);
+  if (!existsSync(indexPath)) return err({ kind: 'index_not_found', path: indexPath });
   const content = readFileSync(indexPath, 'utf8');
   const parsed = parse(content);
-  if (isErr(parsed)) return err(parsed.error.message);
+  if (isErr(parsed)) return err({ kind: 'index_unparseable', cause: parsed.error });
   const root = fromNullable(parsed.value[0]);
-  if (!isSome(root) || root.value.type !== 'map') return err('index.edn root must be a map');
+  if (!isSome(root) || root.value.type !== 'map') return err({ kind: 'index_not_a_map' });
   const grimoires = parseGrimoires(root.value);
   const symbols = parseSymbols(root.value, grimoires);
   const preludeNode = root.value.entries.get('prelude');
@@ -119,12 +140,10 @@ export const search = (index: SymbolIndex, options: SearchOptions): ReadonlyArra
 export const listAll = (
   index: SymbolIndex,
   grimoire?: string,
-): Result<ReadonlyArray<{ readonly grimoire: string; readonly symbol: string; readonly synopsis: string }>, string> =>
-  ok(
-    Array.from(index.symbols.values())
-      .filter((r) => grimoire === undefined || r.grimoire === grimoire)
-      .map((r) => ({ grimoire: r.grimoire, symbol: r.symbol, synopsis: r.synopsis })),
-  );
+): ReadonlyArray<{ readonly grimoire: string; readonly symbol: string; readonly synopsis: string }> =>
+  Array.from(index.symbols.values())
+    .filter((r) => grimoire === undefined || r.grimoire === grimoire)
+    .map((r) => ({ grimoire: r.grimoire, symbol: r.symbol, synopsis: r.synopsis }));
 
 const isUnitShaped = (elements: ReadonlyArray<EdnNode>): boolean => {
   const [head, magnitude, ...rest] = elements;
