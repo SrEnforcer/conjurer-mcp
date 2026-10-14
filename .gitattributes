@@ -1,0 +1,2 @@
+# Render Conjurer specifications as Clojure on GitHub
+*.cnj linguist-language=Clojure
