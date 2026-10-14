@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { lookup, search, readGrimoire } from '@conjurer/core';
 import type { SymbolRecord } from '@conjurer/core';
-import { isSome, isErr } from '@tsfpp/prelude';
+import { isSome, getOrElse } from '@tsfpp/prelude';
 import type { CoreBridge } from '../core-bridge.js';
 
 const formatSymbolHtml = (rec: SymbolRecord): string => {
@@ -137,7 +137,7 @@ const showExamplesPanel = (sym: string, bridge: CoreBridge): void => {
     return;
   }
   const gResult = readGrimoire(bridge.specReader, rec.value.grimoire);
-  const raw = isErr(gResult) ? '' : gResult.value;
+  const raw = getOrElse(() => '')(gResult);
   const section = symbolSection(raw, rec.value.symbol);
   const blocks: ReadonlyArray<string> = [...section.matchAll(/```[a-z]*\n([\s\S]*?)```/g)].map((m) => m[1] ?? '');
   const panel = vscode.window.createWebviewPanel('conjurerExamples', `Conjurer: ${sym} examples`, vscode.ViewColumn.Beside, {});

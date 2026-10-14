@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { ok, err, none, some, isSome, isErr, intoMap, fromNullable, absurd } from '@tsfpp/prelude';
+import { ok, err, none, some, isSome, isErr, intoMap, fromNullable, absurd, getOrElseOption, matchOption, mapOption } from '@tsfpp/prelude';
 import type { Result, Option } from '@tsfpp/prelude';
 import type { SymbolRecord, GrimoireRef } from './types.js';
 import type { EdnNode, EdnMap, ParseError } from './edn-parser.js';
@@ -49,7 +49,7 @@ const parseGrimoires = (root: EdnMap): ReadonlyMap<string, GrimoireRef> => {
     const file = getStr(n, 'file');
     if (!isSome(name) || !isSome(file)) return [];
     const ns = getStr(n, 'namespace');
-    return [[name.value, { name: name.value, file: file.value, ...(isSome(ns) ? { namespace: ns.value } : {}) }]];
+    return [[name.value, { name: name.value, file: file.value, ...getOrElseOption(() => ({}))(mapOption((namespace: string) => ({ namespace }))(ns)) }]];
   });
   return intoMap(entries);
 };
@@ -58,16 +58,15 @@ const parseSymbol = (
   name: string, n: EdnNode, grimoires: ReadonlyMap<string, GrimoireRef>,
 ): Option<SymbolRecord> => {
   if (n.type !== 'map') return none;
-  const gr = getStr(n, 'grimoire') ?? some('core');
-  const grimoire = isSome(gr) ? gr.value : 'core';
+  const grimoire = getOrElseOption(() => 'core')(getStr(n, 'grimoire'));
   const grimoireRef = fromNullable(grimoires.get(grimoire));
   const synopsis = getStr(n, 'synopsis');
   const keyParams = getStrList(n, 'key-params');
   return some({
     symbol: name,
     grimoire,
-    namespace: isSome(grimoireRef) ? (grimoireRef.value.namespace ?? '') : '',
-    synopsis: isSome(synopsis) ? synopsis.value : '',
+    namespace: matchOption(() => '', (ref: GrimoireRef) => ref.namespace ?? '')(grimoireRef),
+    synopsis: getOrElseOption(() => '')(synopsis),
     keyParams,
   });
 };
@@ -79,7 +78,7 @@ const parseSymbols = (
   if (!isSome(sv) || sv.value.type !== 'map') return intoMap([]);
   const entries = Array.from(sv.value.entries.entries()).flatMap(([k, v]): ReadonlyArray<readonly [string, SymbolRecord]> => {
     const rec = parseSymbol(k, v, grimoires);
-    return isSome(rec) ? [[k, rec.value]] : [];
+    return matchOption((): ReadonlyArray<readonly [string, SymbolRecord]> => [], (r: SymbolRecord) => [[k, r] as const])(rec);
   });
   return intoMap(entries);
 };

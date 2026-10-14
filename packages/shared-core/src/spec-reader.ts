@@ -2,7 +2,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-import { ok, err, none, some, isSome, fromNullable, absurd, map } from '@tsfpp/prelude';
+import { ok, err, none, some, absurd, map, findOption, orElseOption } from '@tsfpp/prelude';
 import type { Result, Option } from '@tsfpp/prelude';
 
 export type SpecReader = {
@@ -30,7 +30,7 @@ const fromSibling = (): Option<string> => {
   // The monorepo root is 3 levels up from src/ or dist/; its parent holds sibling checkouts.
   const selfDir = dirname(fileURLToPath(import.meta.url));
   const parent = resolve(selfDir, '..', '..', '..', '..');
-  return fromNullable(SIBLING_SPEC_DIRS.map((name) => resolve(parent, name)).find(hasIndexFile));
+  return findOption(hasIndexFile)(SIBLING_SPEC_DIRS.map((name) => resolve(parent, name)));
 };
 
 const fromInstalledPackage = (): Option<string> => {
@@ -52,10 +52,7 @@ const fromInstalledPackage = (): Option<string> => {
  * @returns The spec directory, or none when no candidate holds an `index.edn`.
  */
 export const resolveSpecPath = (env: SpecEnv): Option<string> => {
-  const fromEnv = fromEnvironment(env);
-  if (isSome(fromEnv)) return fromEnv;
-  const sibling = fromSibling();
-  return isSome(sibling) ? sibling : fromInstalledPackage();
+  return orElseOption(fromInstalledPackage)(orElseOption(fromSibling)(fromEnvironment(env)));
 };
 
 /** Why a grimoire could not be read from the spec. */

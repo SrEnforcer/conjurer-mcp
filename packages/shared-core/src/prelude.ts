@@ -5,7 +5,7 @@
  *
  * Pure — no I/O.
  */
-import { ok, err, isErr, intoMap, fromNullable, isSome, absurd } from '@tsfpp/prelude';
+import { ok, err, isErr, intoMap, fromNullable, absurd, map, flatMap, matchOption, traverseArray } from '@tsfpp/prelude';
 import type { Result } from '@tsfpp/prelude';
 import type { EdnNode, EdnList } from './edn-parser.js';
 
@@ -163,11 +163,7 @@ const COMPARE: ReadonlyMap<string, Comparison> = intoMap<string, Comparison>([
 ]);
 
 const evalAll = (nodes: ReadonlyArray<EdnNode>, env: Env, prelude: Prelude): Result<ReadonlyArray<PreludeValue>, EvalIssue> =>
-  nodes.reduce<Result<ReadonlyArray<PreludeValue>, EvalIssue>>((acc, node) => {
-    if (isErr(acc)) return acc;
-    const r = evaluate(node, env, prelude);
-    return isErr(r) ? err(r.error) : ok([...acc.value, r.value]);
-  }, ok([]));
+  traverseArray((node: EdnNode) => evaluate(node, env, prelude))(nodes);
 
 const bool = (v: boolean): EvalResult => ok({ k: 'bool', v });
 
@@ -232,26 +228,25 @@ const evalCall = (call: EdnList, env: Env, prelude: Prelude): EvalResult => {
   const magnitude = argNodes[0];
   if (isUnitForm(call, prelude) && magnitude?.type === 'number') return ok({ k: 'unit', unit: headOf(call), v: magnitude.value });
   const args = evalAll(argNodes, env, prelude);
-  return isErr(args) ? err(args.error) : applyOperator(headOf(call), args.value);
+  return flatMap<ReadonlyArray<PreludeValue>, PreludeValue, EvalIssue>((values) => applyOperator(headOf(call), values))(args);
 };
 
 const evalMap = (entries: ReadonlyMap<string, EdnNode>, env: Env, prelude: Prelude): EvalResult => {
   const keys = Array.from(entries.keys());
   const values = evalAll(Array.from(entries.values()), env, prelude);
-  return isErr(values)
-    ? err(values.error)
-    : ok({ k: 'map', entries: intoMap(keys.map((key, i) => [key, values.value[i] ?? { k: 'nil' }] as const)) });
+  return map<ReadonlyArray<PreludeValue>, PreludeValue, EvalIssue>((vs) =>
+    ({ k: 'map', entries: intoMap(keys.map((key, i) => [key, vs[i] ?? { k: 'nil' }] as const)) }))(values);
 };
 
 const evalList = (list: EdnList, env: Env, prelude: Prelude): EvalResult => {
   if (isCall(list)) return evalCall(list, env, prelude);
   const items = evalAll(list.elements, env, prelude);
-  return isErr(items) ? err(items.error) : ok({ k: list.delimiter === 'set' ? 'set' : 'seq', items: items.value });
+  return map<ReadonlyArray<PreludeValue>, PreludeValue, EvalIssue>((vs) => ({ k: list.delimiter === 'set' ? 'set' : 'seq', items: vs }))(items);
 };
 
 const lookupSymbol = (name: string, env: Env): EvalResult => {
   const bound = fromNullable(env.get(name));
-  return isSome(bound) ? ok(bound.value) : err({ kind: 'unbound', name });
+  return matchOption((): EvalResult => err({ kind: 'unbound', name }), (v: PreludeValue): EvalResult => ok(v))(bound);
 };
 
 /**

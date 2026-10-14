@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { some, none, isSome } from '@tsfpp/prelude';
+import { some, none, isSome, matchOption } from '@tsfpp/prelude';
 import type { Option } from '@tsfpp/prelude';
 
 const SCORE_DIMS = ['feasibility', 'elegance', 'containment', 'value'] as const;
@@ -86,7 +86,7 @@ const askScore = async (dim: ScoreDim, current: number): Promise<number | undefi
   });
   if (raw === undefined) return undefined;
   const score = mkScore(raw);
-  return isSome(score) ? score.value : undefined;
+  return matchOption((): number | undefined => undefined, (n: number): number | undefined => n)(score);
 };
 
 const collectScores = async (

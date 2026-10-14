@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { ok, err, isErr, isSome, fromNullable, absurd, mapErr } from '@tsfpp/prelude';
+import { ok, err, isErr, isSome, fromNullable, absurd, mapErr, match } from '@tsfpp/prelude';
 import type { Result } from '@tsfpp/prelude';
 import { parse } from './edn-parser.js';
 import { toCnjModel } from './cnj-model.js';
@@ -79,9 +79,10 @@ type ParsedInputs = {
 const parseDocs = (files: ReadonlyArray<string>): ParsedInputs => {
   const results = files.map((path) => ({ path, result: parseCnjFile(path) }));
   return {
-    docs: results.flatMap(({ result }) => (isErr(result) ? [] : [result.value])),
+    docs: results.flatMap(({ result }) =>
+      match((): ReadonlyArray<CnjDocument> => [], (doc: CnjDocument) => [doc])(result)),
     unreadable: results.flatMap(({ path, result }) =>
-      isErr(result) ? [{ path, reason: describeCnjFileReason(result.error) }] : []),
+      match((e: CnjFileError): ReadonlyArray<UnreadableFile> => [{ path, reason: describeCnjFileReason(e) }], () => [])(result)),
   };
 };
 
