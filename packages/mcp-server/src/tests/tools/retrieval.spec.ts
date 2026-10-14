@@ -3,7 +3,11 @@ import { intoMap } from '@tsfpp/prelude';
 import type { SymbolIndex, SpecReader, SymbolRecord, GrimoireRef } from '@conjurer/core';
 import { handleLookup, handleSearch, handleList } from '../../tools/retrieval.js';
 import type { RetrievalContext } from '../../tools/retrieval.js';
-import { parseFirstToolArray, parseFirstToolObject } from './tool-json.js';
+import { z } from 'zod';
+import { parseToolJson } from './tool-json.js';
+
+const SymbolSchema = z.looseObject({ symbol: z.string(), synopsis: z.string() });
+const SymbolListSchema = z.array(SymbolSchema);
 
 const rec1: SymbolRecord = {
   symbol: 'foo/bar', grimoire: 'widgets', namespace: 'foo',
@@ -32,7 +36,7 @@ const emptyCtx: RetrievalContext = {
 describe('handleLookup', () => {
   it('returns symbol record for known symbol', () => {
     const r = handleLookup(ctx, 'foo/bar');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, SymbolSchema);
     expect(d.symbol).toBe('foo/bar');
     expect(d.synopsis).toBe('renders a bar widget');
   });
@@ -51,27 +55,27 @@ describe('handleLookup', () => {
 describe('handleSearch', () => {
   it('finds symbols matching query', () => {
     const r = handleSearch(ctx, { query: 'bar', grimoire: undefined, limit: undefined });
-    const d = parseFirstToolArray(r);
+    const d = parseToolJson(r, SymbolListSchema);
     expect(Array.isArray(d)).toBe(true);
-    const syms = d.map((x: Readonly<Record<string, string>>) => x['symbol']);
+    const syms = d.map((x) => x.symbol);
     expect(syms).toContain('foo/bar');
   });
 
   it('returns empty array for non-matching query', () => {
     const r = handleSearch(ctx, { query: 'zzznomatch', grimoire: undefined, limit: undefined });
-    const d = parseFirstToolArray(r);
+    const d = parseToolJson(r, SymbolListSchema);
     expect(d).toEqual([]);
   });
 
   it('filters by grimoire', () => {
     const r = handleSearch(ctx, { query: 'qux', grimoire: 'widgets', limit: undefined });
-    const d = parseFirstToolArray(r);
+    const d = parseToolJson(r, SymbolListSchema);
     expect(Array.isArray(d)).toBe(true);
   });
 
   it('respects limit param', () => {
     const r = handleSearch(ctx, { query: 'widget', grimoire: undefined, limit: 1 });
-    const d = parseFirstToolArray(r);
+    const d = parseToolJson(r, SymbolListSchema);
     expect(d.length).toBeLessThanOrEqual(1);
   });
 });
@@ -79,20 +83,20 @@ describe('handleSearch', () => {
 describe('handleList', () => {
   it('lists all symbols with synopsis', () => {
     const r = handleList(ctx);
-    const d = parseFirstToolArray(r);
+    const d = parseToolJson(r, SymbolListSchema);
     expect(Array.isArray(d)).toBe(true);
     expect(d).toHaveLength(2);
   });
 
   it('returns empty array on empty index', () => {
     const r = handleList(emptyCtx);
-    const d = parseFirstToolArray(r);
+    const d = parseToolJson(r, SymbolListSchema);
     expect(d).toEqual([]);
   });
 
   it('filters by grimoire', () => {
     const r = handleList(ctx, 'widgets');
-    const d = parseFirstToolArray(r);
+    const d = parseToolJson(r, SymbolListSchema);
     expect(d).toHaveLength(2);
   });
 });

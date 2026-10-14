@@ -48,7 +48,7 @@ const readGrimoireResource = (
   contents: Array<{ uri: string; mimeType: string; text: string }>;
 } => {
   const name = variables['name'];
-  const grimName = Array.isArray(name) ? name[0] : name;
+  const grimName: unknown = Array.isArray(name) ? name[0] : name;
   if (typeof grimName !== 'string' || grimName.length === 0) {
     return toReadContent(uri, 'text/plain', 'Missing grimoire name in URI');
   }

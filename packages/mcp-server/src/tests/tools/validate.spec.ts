@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { fromNullable, getOrElseOption, intoMap } from '@tsfpp/prelude';
 import { handleValidate } from '../../tools/validate.js';
-import { parseFirstToolObject } from './tool-json.js';
+import { z } from 'zod';
+import { parseToolJson } from './tool-json.js';
 import type { SymbolIndex } from '@conjurer/core';
 
 const VALID = `(charter "Proj" :version "1.0.0" :goals ["goal"])`;
@@ -26,10 +27,12 @@ vi.mock('node:fs', () => ({
   readFileSync: (path: string): string => getOrElseOption(() => '')(fromNullable(virtualFiles[path])),
 }));
 
-type ViolationLike = { readonly rule: string; readonly severity: string; readonly message: string };
+const ValidateSchema = z.looseObject({
+  valid: z.boolean(),
+  violations: z.array(z.looseObject({ rule: z.string(), severity: z.string(), message: z.string() })),
+});
 
-const violationsOf = (d: ReturnType<typeof parseFirstToolObject>): ReadonlyArray<ViolationLike> =>
-  Array.isArray(d.violations) ? d.violations : [];
+const violationsOf = (d: z.output<typeof ValidateSchema>): z.output<typeof ValidateSchema>['violations'] => d.violations;
 
 describe('handleValidate — file access', () => {
   it('returns file-not-found for missing file', () => {
@@ -39,21 +42,21 @@ describe('handleValidate — file access', () => {
 
   it('reports valid=true and no violations for clean document', () => {
     const r = handleValidate('/vfs/valid.cnj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, ValidateSchema);
     expect(d.valid).toBe(true);
     expect(d.violations).toHaveLength(0);
   });
 
   it('reports valid=true but warnings for warning-only document', () => {
     const r = handleValidate('/vfs/warn.cnj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, ValidateSchema);
     expect(d.valid).toBe(true);
     expect(d.violations.length).toBeGreaterThan(0);
   });
 
   it('reports valid=false for error violations', () => {
     const r = handleValidate('/vfs/errors.cnj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, ValidateSchema);
     expect(d.valid).toBe(false);
     expect(d.violations.length).toBeGreaterThan(0);
   });
@@ -62,13 +65,13 @@ describe('handleValidate — file access', () => {
 describe('handleValidate — strict mode', () => {
   it('strict=true fails when warnings are present', () => {
     const r = handleValidate('/vfs/warn.cnj', { mode: 'authored', strict: true });
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, ValidateSchema);
     expect(d.valid).toBe(false);
   });
 
   it('strict=true passes when document is violation-free', () => {
     const r = handleValidate('/vfs/valid.cnj', { mode: 'authored', strict: true });
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, ValidateSchema);
     expect(d.valid).toBe(true);
   });
 });
@@ -81,7 +84,7 @@ const makeIndex = (known: ReadonlyArray<string>): SymbolIndex => ({
 describe('handleValidate — symbol index integration', () => {
   it('produces no symbol-usage violations when no index is passed', () => {
     const r = handleValidate('/vfs/valid.cnj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, ValidateSchema);
     const symViolations = violationsOf(d).filter((v) => v.rule === 'symbol-usage');
     expect(symViolations).toHaveLength(0);
   });
@@ -91,7 +94,7 @@ describe('handleValidate — symbol index integration', () => {
     // head-position symbol is 'charter'; pass it as known
     const index = makeIndex(['charter']);
     const r = handleValidate('/vfs/valid.cnj', { index });
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, ValidateSchema);
     const symViolations = violationsOf(d).filter((v) => v.rule === 'symbol-usage');
     expect(symViolations).toHaveLength(0);
   });
@@ -100,7 +103,7 @@ describe('handleValidate — symbol index integration', () => {
     // Pass an empty index so 'charter' (head of the form) is unknown
     const emptyIndex = makeIndex([]);
     const r = handleValidate('/vfs/valid.cnj', { index: emptyIndex });
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, ValidateSchema);
     const symViolations = violationsOf(d).filter((v) => v.rule === 'symbol-usage');
     expect(symViolations.length).toBeGreaterThan(0);
   });
@@ -110,14 +113,14 @@ describe('handleValidate — symbol index integration', () => {
 describe('handleValidate — references check integration', () => {
   it('produces no references violations when file has no references', () => {
     const r = handleValidate('/vfs/valid.cnj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, ValidateSchema);
     const refViolations = violationsOf(d).filter((v) => v.rule === 'references-resolve');
     expect(refViolations).toHaveLength(0);
   });
 
   it('produces no references violations when all referenced files exist', () => {
     const r = handleValidate('/vfs/with-good-ref.cnj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, ValidateSchema);
     const refViolations = violationsOf(d).filter((v) => v.rule === 'references-resolve');
     expect(refViolations).toHaveLength(0);
     expect(d.valid).toBe(true);
@@ -125,7 +128,7 @@ describe('handleValidate — references check integration', () => {
 
   it('produces an error violation for a missing referenced file', () => {
     const r = handleValidate('/vfs/with-bad-ref.cnj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, ValidateSchema);
     const refViolations = violationsOf(d).filter((v) => v.rule === 'references-resolve');
     expect(refViolations).toHaveLength(1);
     expect(refViolations[0]?.severity).toBe('error');
@@ -135,7 +138,7 @@ describe('handleValidate — references check integration', () => {
 
   it('reports only the missing files when references are mixed', () => {
     const r = handleValidate('/vfs/with-mixed-refs.cnj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, ValidateSchema);
     const refViolations = violationsOf(d).filter((v) => v.rule === 'references-resolve');
     expect(refViolations).toHaveLength(1);
     expect(refViolations[0]?.message).toContain('ref-missing.cnj');

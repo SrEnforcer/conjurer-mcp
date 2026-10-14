@@ -1,11 +1,22 @@
 /* eslint-disable max-lines-per-function -- DEVIATION(3.4): grouped behavior assertions kept together for scenario traceability in tests. */
-/* eslint-disable functional/prefer-readonly-type -- DEVIATION(2.2): inline fixture typing in tests mirrors JSON payload ergonomics. */
 import { describe, it, expect, vi } from 'vitest';
 import { intoMap, fromNullable, getOrElseOption } from '@tsfpp/prelude';
 import type { SymbolIndex, SymbolRecord, GrimoireRef } from '@conjurer/core';
 import { handleExplainForm } from '../../tools/retrieval.js';
 import type { RetrievalContext } from '../../tools/retrieval.js';
-import { parseFirstToolObject } from './tool-json.js';
+import { z } from 'zod';
+import { parseToolJson } from './tool-json.js';
+
+const ExplainFormSchema = z.looseObject({
+  name: z.string(),
+  form_type: z.string(),
+  validation_rules: z.array(z.unknown()),
+  symbols_referenced: z.array(z.looseObject({
+    symbol: z.string(),
+    known: z.boolean(),
+    synopsis: z.string().optional(),
+  })),
+});
 
 // A .cnj file with a spell that references foo/bar and baz/qux
 const WITH_SPELL = [
@@ -54,34 +65,34 @@ describe('handleExplainForm', () => {
 
   it('returns the correct form_type for a spell', () => {
     const r = handleExplainForm(ctx, '/vfs/explain/proj.cnj', 'my-spell');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, ExplainFormSchema);
     expect(d.form_type).toBe('spell');
   });
 
   it('returns the correct form_type for a target', () => {
     const r = handleExplainForm(ctx, '/vfs/explain/proj.cnj', 'my-target');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, ExplainFormSchema);
     expect(d.form_type).toBe('target');
   });
 
   it('returns the correct form_type for the charter', () => {
     const r = handleExplainForm(ctx, '/vfs/explain/proj.cnj', 'Proj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, ExplainFormSchema);
     expect(d.form_type).toBe('charter');
   });
 
   it('returns known symbols referenced in the form', () => {
     const r = handleExplainForm(ctx, '/vfs/explain/proj.cnj', 'my-spell');
-    const d = parseFirstToolObject(r);
-    const syms = d.symbols_referenced.map((s: { symbol: string }) => s.symbol);
+    const d = parseToolJson(r, ExplainFormSchema);
+    const syms = d.symbols_referenced.map((s) => s.symbol);
     expect(syms).toContain('foo/bar');
     expect(syms).toContain('baz/qux');
   });
 
   it('marks symbols as known when present in index', () => {
     const r = handleExplainForm(ctx, '/vfs/explain/proj.cnj', 'my-spell');
-    const d = parseFirstToolObject(r);
-    const fooBar = d.symbols_referenced.find((s: { symbol: string }) => s.symbol === 'foo/bar');
+    const d = parseToolJson(r, ExplainFormSchema);
+    const fooBar = d.symbols_referenced.find((s) => s.symbol === 'foo/bar');
     expect(fooBar?.known).toBe(true);
     expect(fooBar?.synopsis).toBe('a widget');
   });
@@ -89,8 +100,8 @@ describe('handleExplainForm', () => {
   it('marks symbols as not known when absent from index', () => {
     // 'spell' appears as a head symbol — not in the index
     const r = handleExplainForm(ctx, '/vfs/explain/proj.cnj', 'my-spell');
-    const d = parseFirstToolObject(r);
-    const unknown = d.symbols_referenced.find((s: { symbol: string; known: boolean }) => !s.known);
+    const d = parseToolJson(r, ExplainFormSchema);
+    const unknown = d.symbols_referenced.find((s) => !s.known);
     // There should be at least some unknown symbols (form head etc.)
     // Mainly verifying the known flag works both ways
     expect(unknown).toBeDefined();
@@ -98,20 +109,20 @@ describe('handleExplainForm', () => {
 
   it('returns empty symbols_referenced for a form with no symbol refs', () => {
     const r = handleExplainForm(ctx, '/vfs/explain/simple.cnj', 'Simple');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, ExplainFormSchema);
     // Charter with just title/version/goals — no namespaced symbols
     expect(Array.isArray(d.symbols_referenced)).toBe(true);
   });
 
   it('includes validation_rules array', () => {
     const r = handleExplainForm(ctx, '/vfs/explain/proj.cnj', 'my-spell');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, ExplainFormSchema);
     expect(Array.isArray(d.validation_rules)).toBe(true);
   });
 
   it('returns the form name in the result', () => {
     const r = handleExplainForm(ctx, '/vfs/explain/proj.cnj', 'my-spell');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, ExplainFormSchema);
     expect(d.name).toBe('my-spell');
   });
 });

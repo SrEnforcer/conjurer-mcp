@@ -1,7 +1,23 @@
 /* eslint-disable functional/prefer-readonly-type -- DEVIATION(2.2): inline assertion helper shapes in tests prioritize readability over readonly wrappers. */
 import { describe, it, expect, vi } from 'vitest';
 import { handleLintDiskConsistency } from '../../tools/validate.js';
-import { parseFirstToolObject } from './tool-json.js';
+import { z } from 'zod';
+import { parseToolJson } from './tool-json.js';
+
+const LintDiskSchema = z.looseObject({
+  consistent: z.boolean(),
+  issue_count: z.number(),
+  modules: z.looseObject({
+    declared: z.number(),
+    found: z.number(),
+    missing: z.array(z.looseObject({ module: z.string(), target: z.string() })),
+  }),
+  references: z.looseObject({
+    declared: z.number(),
+    found: z.number(),
+    missing: z.array(z.looseObject({ ref: z.string() })),
+  }),
+});
 
 const CHARTER_ONLY = `(charter "P" :version "1.0.0" :goals ["g"])`;
 
@@ -112,14 +128,14 @@ describe('handleLintDiskConsistency — file access', () => {
 describe('handleLintDiskConsistency — consistent result', () => {
   it('reports consistent=true when all declared modules are found', () => {
     const r = handleLintDiskConsistency('/vfs/lint/main.cnj', '/vfs/lint');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, LintDiskSchema);
     expect(d.consistent).toBe(true);
     expect(d.issue_count).toBe(0);
   });
 
   it('reports all three declared modules as found', () => {
     const r = handleLintDiskConsistency('/vfs/lint/main.cnj', '/vfs/lint');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, LintDiskSchema);
     expect(d.modules.declared).toBe(3);
     expect(d.modules.found).toBe(3);
     expect(d.modules.missing).toHaveLength(0);
@@ -127,7 +143,7 @@ describe('handleLintDiskConsistency — consistent result', () => {
 
   it('reports the referenced file as found', () => {
     const r = handleLintDiskConsistency('/vfs/lint/main.cnj', '/vfs/lint');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, LintDiskSchema);
     expect(d.references.declared).toBe(1);
     expect(d.references.found).toBe(1);
     expect(d.references.missing).toHaveLength(0);
@@ -137,42 +153,42 @@ describe('handleLintDiskConsistency — consistent result', () => {
 describe('handleLintDiskConsistency — missing module', () => {
   it('reports consistent=false when a module file is missing', () => {
     const r = handleLintDiskConsistency('/vfs/lint/missing.cnj', '/vfs/lint');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, LintDiskSchema);
     expect(d.consistent).toBe(false);
     expect(d.issue_count).toBe(1);
   });
 
   it('names the missing module in the output', () => {
     const r = handleLintDiskConsistency('/vfs/lint/missing.cnj', '/vfs/lint');
-    const d = parseFirstToolObject(r);
-    const missingNames: Array<string> = d.modules.missing.map((m: { module: string }) => m.module);
+    const d = parseToolJson(r, LintDiskSchema);
+    const missingNames = d.modules.missing.map((m) => m.module);
     expect(missingNames).toContain('absent.ts');
     expect(missingNames).not.toContain('present.ts');
   });
 
   it('includes the target name for each missing module', () => {
     const r = handleLintDiskConsistency('/vfs/lint/missing.cnj', '/vfs/lint');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, LintDiskSchema);
     const entry = d.modules.missing[0];
-    expect(entry.target).toBe('core');
-    expect(entry.module).toBe('absent.ts');
+    expect(entry?.target).toBe('core');
+    expect(entry?.module).toBe('absent.ts');
   });
 });
 
 describe('handleLintDiskConsistency — missing reference', () => {
   it('reports consistent=false for a missing charter reference', () => {
     const r = handleLintDiskConsistency('/vfs/lint/bad-ref.cnj', '/vfs/lint');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, LintDiskSchema);
     expect(d.consistent).toBe(false);
     expect(d.references.missing).toHaveLength(1);
-    expect(d.references.missing[0].ref).toBe('missing-ref.cnj');
+    expect(d.references.missing[0]?.ref).toBe('missing-ref.cnj');
   });
 });
 
 describe('handleLintDiskConsistency — multiple issues', () => {
   it('accumulates both module and reference failures', () => {
     const r = handleLintDiskConsistency('/vfs/lint/both.cnj', '/vfs/lint');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, LintDiskSchema);
     expect(d.consistent).toBe(false);
     expect(d.issue_count).toBe(2);
     expect(d.modules.missing).toHaveLength(1);
@@ -183,7 +199,7 @@ describe('handleLintDiskConsistency — multiple issues', () => {
 describe('handleLintDiskConsistency — no targets', () => {
   it('reports consistent=true for a charter-only file with no modules', () => {
     const r = handleLintDiskConsistency('/vfs/lint/empty.cnj', '/vfs/lint');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, LintDiskSchema);
     expect(d.consistent).toBe(true);
     expect(d.modules.declared).toBe(0);
     expect(d.references.declared).toBe(0);
@@ -195,8 +211,8 @@ describe('handleLintDiskConsistency — node_modules exclusion', () => {
     // node_modules/pkg/index.ts is in the tree but should be excluded
     // ghost.ts is not in the tree at all (both.cnj test case covers this)
     const r = handleLintDiskConsistency('/vfs/lint/both.cnj', '/vfs/lint');
-    const d = parseFirstToolObject(r);
-    expect(d.modules.missing[0].module).toBe('ghost.ts');
+    const d = parseToolJson(r, LintDiskSchema);
+    expect(d.modules.missing[0]?.module).toBe('ghost.ts');
   });
 });
 
@@ -205,7 +221,7 @@ describe('handleLintDiskConsistency — subdirectory module names', () => {
     // The readdirSync mock returns 'src/tools/server.ts' for /vfs/lint/sub root.
     // Declared module is 'tools/server.ts' — suffix match should succeed.
     const r = handleLintDiskConsistency('/vfs/lint/sub.cnj', '/vfs/lint/sub');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, LintDiskSchema);
     expect(d.modules.found).toBe(1);
     expect(d.modules.missing).toHaveLength(0);
   });
