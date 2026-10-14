@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.0](https://github.com/SrEnforcer/conjurer-mcp/compare/v0.1.4...v0.2.0) (2026-10-14)
+
+
+### Features
+
+* **extension:** chat prompt target, Decide lens, reassessments in :history ([2947793](https://github.com/SrEnforcer/conjurer-mcp/commit/2947793b1a9235e924329b5f74de0c7ef1a5fb11))
+* **extension:** record reassessments inside the candidate's :history ([6e613a2](https://github.com/SrEnforcer/conjurer-mcp/commit/6e613a26800ae6012ce6b427b3d47f31a4699bcc))
+* **extension:** send AI prompts to a chosen chat; add the Decide lens ([f60e3ca](https://github.com/SrEnforcer/conjurer-mcp/commit/f60e3ca61575db887ce07ccb915afd876fe53c59))
+
+
+### Bug Fixes
+
+* **workspace:** report referenced .cnj files the workspace cannot read ([6ce0057](https://github.com/SrEnforcer/conjurer-mcp/commit/6ce0057ce578a6e5a58539d3718c8b05b9614b99))
+
 ## [0.1.4](https://github.com/SrEnforcer/conjurer-mcp/compare/v0.1.3...v0.1.4) (2026-10-14)
 
 
