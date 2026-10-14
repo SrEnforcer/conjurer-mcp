@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
-import { parse, toCnjModel } from '@conjurer/core';
+import { parse, toCnjModel, effectiveScores } from '@conjurer/core';
 import type { SymbolIndex, CnjCandidateForm, CnjDocument } from '@conjurer/core';
 import { isErr, match } from '@tsfpp/prelude';
 
@@ -78,26 +78,35 @@ const makeLens = (
     readonly command: string;
     readonly lineNum: number;
     readonly title: string;
+    readonly tooltip: string;
   },
 ): vscode.CodeLens => {
-  const { lineNum, title, command, args: commandArgs } = args;
+  const { lineNum, title, tooltip, command, args: commandArgs } = args;
   // DEVIATION(1.9): vscode.CodeLens is a VS Code adapter type.
   // eslint-disable-next-line no-restricted-syntax
-  return new vscode.CodeLens(makeRange(lineNum), { title, command, arguments: [...commandArgs] });
+  return new vscode.CodeLens(makeRange(lineNum), { title, tooltip, command, arguments: [...commandArgs] });
 };
 
 const optionalLens = (lens: vscode.CodeLens | undefined): ReadonlyArray<vscode.CodeLens> =>
   lens === undefined ? [] : [lens];
 
 const makeGoalsLens = (lineNum: number): vscode.CodeLens => {
-  return makeLens({ lineNum, title: '↻ Refresh goals', command: 'conjurer.refreshGoals', args: [] });
+  return makeLens({ lineNum, title: '↻ Refresh goals',
+    tooltip: 'AI: rewrite :goals so they match the decisions taken and the active candidates.',
+    command: 'conjurer.refreshGoals', args: [] });
 };
 
 const makeCharterLenses = (lineNum: number): ReadonlyArray<vscode.CodeLens> => {
   return [
-    makeLens({ lineNum, title: '✓ Validate .cnj', command: 'conjurer.validateCnj', args: [] }),
-    makeLens({ lineNum, title: '? Show open questions', command: 'conjurer.showOpen', args: [] }),
-    makeLens({ lineNum, title: '🤖 Resolve open questions', command: 'conjurer.resolveOpenQuestions', args: [] }),
+    makeLens({ lineNum, title: '✓ Validate .cnj',
+      tooltip: 'Check this file against the Conjurer rules; problems appear in the Problems panel.',
+      command: 'conjurer.validateCnj', args: [] }),
+    makeLens({ lineNum, title: '? Show open questions',
+      tooltip: "List the charter's :open questions.",
+      command: 'conjurer.showOpen', args: [] }),
+    makeLens({ lineNum, title: '🤖 Resolve open questions',
+      tooltip: 'AI: propose an answer and a ready-to-paste :decisions entry for each :open question.',
+      command: 'conjurer.resolveOpenQuestions', args: [] }),
   ];
 };
 
@@ -112,12 +121,15 @@ const makeCharterRefLens = (
   const found = resolved.filter(Boolean).length;
   const broken = references.length - found;
   if (broken === 0) {
-    return makeLens({ lineNum, title: `${found}/${references.length} refs resolved`, command: '', args: [] });
+    return makeLens({ lineNum, title: `${found}/${references.length} refs resolved`,
+      tooltip: "Every file in the charter's :references exists on disk.",
+      command: '', args: [] });
   }
   return makeLens(
     {
       lineNum,
       title: `⚠ ${broken} broken reference${broken === 1 ? '' : 's'}`,
+      tooltip: "Some files in the charter's :references are missing on disk. Click to validate.",
       command: 'conjurer.validateCnj',
       args: [],
     },
@@ -125,11 +137,13 @@ const makeCharterRefLens = (
 };
 
 const makeSymbolLens = (occ: SymbolOccurrence): vscode.CodeLens => {
-  return makeLens({ lineNum: occ.line, title: '⚡ Show examples', command: 'conjurer.showExamples', args: [occ.symbol] });
+  return makeLens({ lineNum: occ.line, title: '⚡ Show examples',
+    tooltip: `Show the spec's description and examples of ${occ.symbol}.`,
+    command: 'conjurer.showExamples', args: [occ.symbol] });
 };
 
 const totalCandidateScore = (c: CnjCandidateForm): number =>
-  Array.from(c.scores.values()).reduce((a, b) => a + b, 0);
+  Array.from(effectiveScores(c).values()).reduce((a, b) => a + b, 0);
 
 const makeCandidateScoreLens = (
   occ: CandidateOccurrence,
@@ -139,6 +153,7 @@ const makeCandidateScoreLens = (
     {
       lineNum: occ.line,
       title: `score: ${totalCandidateScore(candidate)} · ${candidate.status}`,
+      tooltip: 'Sum of the current scores (latest reassessment per dimension) and the current lifecycle status.',
       command: 'conjurer.showCandidateDetails',
       args: [occ.id, totalCandidateScore(candidate), candidate.status],
     },
@@ -146,16 +161,30 @@ const makeCandidateScoreLens = (
 };
 
 const scoreRecordFromCandidate = (candidate: CnjCandidateForm): Record<string, number> =>
-  Object.fromEntries(candidate.scores.entries());
+  Object.fromEntries(effectiveScores(candidate).entries());
 
 const proposedCandidateLenses = (occ: CandidateOccurrence): ReadonlyArray<vscode.CodeLens> => [
-  makeLens({ lineNum: occ.line, title: '🔍 Critique', command: 'conjurer.critiqueCandidate', args: [occ.id, occ.line] }),
-  makeLens({ lineNum: occ.line, title: '💬 Argue', command: 'conjurer.argueCandidate', args: [occ.id, occ.line] }),
+  makeLens({
+    lineNum: occ.line,
+    title: '⚖ Decide',
+    tooltip: 'AI: weigh whether this candidate still earns its place, ask you what it needs to know, '
+      + 'then force a verdict (plan, keep or abandon) recorded as a dated f/reassess.',
+    command: 'conjurer.decideCandidate',
+    args: [occ.id, occ.line],
+  }),
+  makeLens({ lineNum: occ.line, title: '🔍 Critique',
+    tooltip: 'AI: argue against this candidate: weak rationale, vague conditions, inflated scores.',
+    command: 'conjurer.critiqueCandidate', args: [occ.id, occ.line] }),
+  makeLens({ lineNum: occ.line, title: '💬 Argue',
+    tooltip: 'AI: build the strongest case for this candidate and the step that would make it :planned.',
+    command: 'conjurer.argueCandidate', args: [occ.id, occ.line] }),
 ];
 
 const hoistCandidateLens = (occ: CandidateOccurrence, score: number): ReadonlyArray<vscode.CodeLens> =>
   score >= 28
-    ? [makeLens({ lineNum: occ.line, title: '⬆ Hoist', command: 'conjurer.hoistCandidate', args: [occ.id, occ.line] })]
+    ? [makeLens({ lineNum: occ.line, title: '⬆ Hoist',
+      tooltip: 'Promote this candidate to a charter decision: you give the key and a note, an f/hoist is inserted.',
+      command: 'conjurer.hoistCandidate', args: [occ.id, occ.line] })]
     : [];
 
 const makeCandidateActionLenses = (
@@ -169,6 +198,7 @@ const makeCandidateActionLenses = (
     makeLens({
       lineNum: occ.line,
       title: '📊 Reassess',
+      tooltip: 'Record a dated f/reassess by hand: new scores and a rationale. The original form is not edited.',
       command: 'conjurer.reassessCandidate',
       args: [occ.id, occ.line, scoreRecordFromCandidate(candidate)],
     }),
@@ -178,7 +208,9 @@ const makeCandidateActionLenses = (
 };
 
 const makeFormLens = (form: FormOccurrence): vscode.CodeLens => {
-  return makeLens({ lineNum: form.line, title: '✨ Refine', command: 'conjurer.refineForm', args: [form.type, form.name, form.line] });
+  return makeLens({ lineNum: form.line, title: '✨ Refine',
+    tooltip: `AI: suggest what to add to, adjust in, or keep unchanged in this ${form.type}.`,
+    command: 'conjurer.refineForm', args: [form.type, form.name, form.line] });
 };
 
 const getLines = (document: vscode.TextDocument): ReadonlyArray<string> =>
@@ -187,13 +219,14 @@ const getLines = (document: vscode.TextDocument): ReadonlyArray<string> =>
 export type ConjurerCodeLensProvider = vscode.CodeLensProvider;
 
 const parseDocumentModel = (
-  document: vscode.TextDocument,
+  fileName: string,
+  lines: ReadonlyArray<string>,
   shouldParse: boolean,
 ): CnjDocument | undefined => {
   if (!shouldParse) return undefined;
-  const parsed = parse(document.getText());
+  const parsed = parse(lines.join('\n'));
   if (isErr(parsed)) return undefined;
-  const modelResult = toCnjModel(parsed.value, document.fileName);
+  const modelResult = toCnjModel(parsed.value, fileName);
   return match((): CnjDocument | undefined => undefined, (doc: CnjDocument): CnjDocument | undefined => doc)(modelResult);
 };
 
@@ -222,20 +255,21 @@ const candidateLenses = (
   return [scoreLenses, actionLenses];
 };
 
-const documentCodeLenses = (
-  document: vscode.TextDocument,
+/** Every CodeLens for a .cnj file, given its path and lines. */
+export const codeLensesFor = (
+  fileName: string,
+  lines: ReadonlyArray<string>,
   index: SymbolIndex,
 ): ReadonlyArray<vscode.CodeLens> => {
-  const lines = getLines(document);
   const charterLine = findCharterLine(lines);
   const candidateOccs = findCandidateOccurrences(lines);
-  const parsedDoc = parseDocumentModel(document, charterLine !== undefined || candidateOccs.length > 0);
+  const parsedDoc = parseDocumentModel(fileName, lines, charterLine !== undefined || candidateOccs.length > 0);
   const goalsLine = charterLine === undefined ? undefined : findGoalsLine(lines, charterLine);
   const [candidateScoreLenses, candidateActionLenses] = candidateLenses(candidateOccs, parsedDoc);
 
   return [
     ...(charterLine === undefined ? [] : makeCharterLenses(charterLine)),
-    ...makeCharterRefLenses(charterLine, parsedDoc, document.fileName),
+    ...makeCharterRefLenses(charterLine, parsedDoc, fileName),
     ...(goalsLine === undefined ? [] : [makeGoalsLens(goalsLine)]),
     ...findSymbolOccurrences(lines, index).map(makeSymbolLens),
     ...findFormOccurrences(lines).map(makeFormLens),
@@ -248,5 +282,5 @@ export const mkCodeLensProvider = (index: SymbolIndex): ConjurerCodeLensProvider
   // DEVIATION(1.9): vscode.CodeLensProvider.provideCodeLenses must return a mutable CodeLens[].
   // eslint-disable-next-line functional/prefer-readonly-type
   provideCodeLenses: (document: vscode.TextDocument, _token: vscode.CancellationToken): vscode.CodeLens[] =>
-    document.fileName.endsWith('.cnj') ? [...documentCodeLenses(document, index)] : [],
+    document.fileName.endsWith('.cnj') ? [...codeLensesFor(document.fileName, getLines(document), index)] : [],
 });

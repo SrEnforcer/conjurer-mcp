@@ -77,7 +77,7 @@ The extension activates in any workspace containing a `.cnj` file. It offers hov
 - Look up symbol, Search symbols, Describe symbol
 - Validate current .cnj, Show open questions
 - Materialise folder (also on a folder's context menu in the explorer)
-- Refine form with AI, Resolve open questions with AI — these build a prompt and hand it to the IDE's chat; the extension itself calls no model.
+- Refine form with AI, Resolve open questions with AI — these build a prompt and hand it to a chat; the extension itself calls no model. The setting `conjurer.promptTarget` picks the chat: `vscodeChat` (VS Code's chat view, the default), `claudeCode` (a new Claude Code tab with the prompt filled in but not sent) or `clipboard`. When the chosen chat cannot be opened, the prompt is copied to the clipboard.
 
 Build an installable package with:
 

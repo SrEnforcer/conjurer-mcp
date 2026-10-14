@@ -42,7 +42,19 @@ export const commands = {
   executeCommand: (_cmd: string, ..._args: unknown[]) => Promise.resolve(undefined),
 };
 
+export const env = {
+  clipboard: { writeText: (_text: string) => Promise.resolve() },
+};
+
+// Settings a test has configured, keyed as `section.key`; read by workspace.getConfiguration.
+const configuredSettings = new Map<string, unknown>();
+export const setTestSetting = (key: string, value: unknown): void => { configuredSettings.set(key, value); };
+export const clearTestSettings = (): void => { configuredSettings.clear(); };
+
 export const workspace = {
+  getConfiguration: (section?: string) => ({
+    get: (key: string): unknown => configuredSettings.get(section === undefined ? key : `${section}.${key}`),
+  }),
   workspaceFolders: undefined,
   onDidSaveTextDocument: (_handler: unknown) => ({ dispose: () => {} }),
 };

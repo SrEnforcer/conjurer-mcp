@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { intoMap } from '@tsfpp/prelude';
 import type { SymbolIndex } from '@conjurer/core';
-import { findCharterLine, findSymbolOccurrences, findFormOccurrences, findCandidateOccurrences, findGoalsLine } from '../providers/codelens.js';
+import { findCharterLine, findSymbolOccurrences, findFormOccurrences, findCandidateOccurrences, findGoalsLine, codeLensesFor } from '../providers/codelens.js';
 
 const emptyIdx: SymbolIndex = { symbols: intoMap([]), grimoires: intoMap([]) };
 
@@ -226,5 +226,29 @@ describe('findGoalsLine', () => {
   it('handles :goals on a deeply indented line', () => {
     const lines = ['(charter "X"', '    :version "1"', '    :goals ["deep"]', ')'];
     expect(findGoalsLine(lines, 0)).toBe(2);
+  });
+});
+
+describe('codeLensesFor', () => {
+  const source = [
+    '(charter "Demo" :version "1.0.0"',
+    '  :goals ["g"]',
+    '  :references ["missing.cnj"])',
+    '(f/candidate :open-idea :label "x" :added "2026-06-01" :status :proposed',
+    '  :scores {:feasibility 5 :elegance 5 :containment 5 :value 5} :rationale "r")',
+    '(f/candidate :next-idea :label "y" :added "2026-06-01" :status :planned',
+    '  :scores {:feasibility 9 :elegance 9 :containment 9 :value 9} :rationale "r")',
+    '(materialise "app")',
+  ];
+  const lenses = codeLensesFor('/tmp/demo.cnj', source, idx);
+
+  it('gives every lens a tooltip', () => {
+    expect(lenses.length).toBeGreaterThan(10);
+    expect(lenses.filter((l) => (l.command?.tooltip ?? '').length === 0).map((l) => l.command?.title)).toEqual([]);
+  });
+
+  it('offers Decide on proposed candidates only', () => {
+    const decide = lenses.filter((l) => l.command?.command === 'conjurer.decideCandidate');
+    expect(decide.map((l) => l.command?.arguments)).toEqual([['open-idea', 3]]);
   });
 });

@@ -102,7 +102,44 @@
                 editor.fold on first activation only — tab-switches do not re-collapse
                 forms the user has manually expanded. computeHoistFoldRanges is pure
                 and uses a boundary scan (top-level form starts) so body content
-                (:status :hoisted) can be checked without a full parse."}]
+                (:status :hoisted) can be checked without a full parse."}
+    {:id :prompt-target-setting
+     :date "2026-10-14"
+     :decision "The AI-assisted commands hand their prompt to the chat named by the setting
+                conjurer.promptTarget: vscodeChat (the built-in chat view, which is GitHub
+                Copilot Chat; the default, so existing behaviour is unchanged), claudeCode or
+                clipboard. claudeCode runs claude-vscode.editor.open(sessionId, initialPrompt),
+                which opens a new Claude Code tab with the prompt in its input box, not sent,
+                so the practitioner reviews it first. That is the Claude Code extension's own
+                call signature, read from version 2.1.299, not a published API; when the
+                command fails the prompt goes to the clipboard with a note saying why. The
+                choice of command is pure (commands/chat-handoff.ts) and unit-tested; the
+                extension still calls no model itself."}
+    {:id :codelens-tooltips
+     :date "2026-10-14"
+     :decision "Every CodeLens carries a one-line tooltip saying what clicking it does; lenses
+                that hand a prompt to a chat start with 'AI:'. The tooltip is a required field
+                of makeLens, so a new lens cannot be added without one."}
+    {:id :decide-candidate
+     :date "2026-10-14"
+     :decision "A '⚖ Decide' CodeLens on :proposed candidates hands the chat a prompt that must
+                end in a verdict: plan (:status :planned), keep (no status change, but only with
+                a sharpened, checkable condition) or abandon (:status :abandoned); 'needs more
+                thought' is not an outcome. The prompt asks for a substantive evaluation (the
+                problem and its evidence, the cost of never doing it, fit with :goals, overlap
+                with decisions, built code and the other active candidates, the state of the
+                :conditions), then has the model ask the practitioner at most four questions
+                that would change the verdict, and wait. The verdict is recorded as one dated
+                f/reassess appended after the candidate, the same insertion contract as
+                :codelens-candidate-actions-2026-06-12. The spec's lifecycle is kept as it is:
+                postponing is keep, discarding is abandon. No new status is invented here.
+                The builder is pure (commands/decide-prompt.ts) and takes today's date as a
+                parameter."}
+    {:id :candidate-score-lens-effective
+     :date "2026-10-14"
+     :decision "The candidate score lens and the Reassess defaults show the effective scores
+                (each dimension from its latest reassessment, foresight.md · f/reassess), not
+                the scores as first written, so a reassessment moves the badge."}]
   :open []
   :outputs {
     :vscode-extension (target :typescript :standard :tsf-plus-plus)}
@@ -202,9 +239,9 @@
      :est-lines 130}
     {:module "providers/codelens.ts"
      :responsibility "CodeLensProvider — detect charter and symbol forms, emit the
-                      lenses and their command bindings."
-     :exports ["ConjurerCodeLensProvider"]
-     :est-lines 200}
+                      lenses, their tooltips and their command bindings."
+     :exports ["ConjurerCodeLensProvider" "mkCodeLensProvider" "codeLensesFor"]
+     :est-lines 290}
     {:module "commands/lookup.ts"
      :responsibility "Look-up and section commands; render results in a webview or
                       output channel."
@@ -242,18 +279,31 @@
     {:module "commands/refine.ts"
      :responsibility "VS Code adapter for the AI-assisted commands (refineForm,
                       resolveOpenQuestions, critiqueCandidate, argueCandidate,
-                      refreshGoals): read the form or charter, build the prompt and
-                      hand it to the IDE's chat, or the clipboard as a fallback.
-                      Calls no model itself."
+                      decideCandidate, refreshGoals): read the form or charter, build
+                      the prompt and hand it to chat-handoff. Calls no model itself."
      :exports ["registerRefineCommands"]
-     :est-lines 140}
+     :est-lines 160}
+    {:module "commands/chat-handoff.ts"
+     :responsibility "Hand a prompt to the chat chosen in conjurer.promptTarget (VS Code
+                      chat, Claude Code or the clipboard), falling back to the clipboard
+                      when that chat cannot be opened. Choosing the command is pure."
+     :exports ["openInChat" "parsePromptTarget" "chatCommandFor" "PromptTarget"
+               "PROMPT_TARGETS" "DEFAULT_PROMPT_TARGET" "ChatCommand"]
+     :est-lines 70}
     {:module "commands/refine-prompts.ts"
      :responsibility "Pure prompt builders for the refine commands, split out of
                       refine.ts when it passed the 400-line ceiling. No VS Code
                       dependency."
      :exports ["extractFormContent" "buildRefinePrompt" "buildResolveOpenPrompt"
-               "buildCritiquePrompt" "buildArguePrompt" "buildRefreshGoalsPrompt"]
+               "buildCritiquePrompt" "buildArguePrompt" "buildRefreshGoalsPrompt"
+               "effectiveTotal"]
      :est-lines 280}
+    {:module "commands/decide-prompt.ts"
+     :responsibility "Pure prompt builder for decideCandidate: a substantive evaluation
+                      of one candidate that ends in a forced verdict, recorded as a
+                      dated f/reassess. No VS Code dependency; today is a parameter."
+     :exports ["buildDecidePrompt" "DecidePromptInput"]
+     :est-lines 110}
     {:module "commands/reassess.ts"
      :responsibility "reassessCandidate and hoistCandidate commands: insert an
                       f/reassess history entry or an f/hoist form after the
