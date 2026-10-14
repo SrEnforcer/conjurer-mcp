@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
-import { createCoreBridge } from './core-bridge.js';
-import { createHoverProvider, buildHoverContent } from './providers/hover.js';
-import { createCodeLensProvider } from './providers/codelens.js';
-import { createFoldingProvider, foldHoistFormsOnOpen } from './providers/folding.js';
+import { mkCoreBridge } from './core-bridge.js';
+import { mkHoverProvider, buildHoverContent } from './providers/hover.js';
+import { mkCodeLensProvider } from './providers/codelens.js';
+import { mkFoldingProvider, foldHoistFormsOnOpen } from './providers/folding.js';
 import { registerLookupCommands } from './commands/lookup.js';
 import { registerValidateCommands } from './commands/validate.js';
 import { registerMaterialiseFolderCommand } from './commands/materialise-folder.js';
@@ -21,7 +21,7 @@ const CNJ_SELECTOR: vscode.DocumentSelector = [
 const SYMBOL_PATTERN = /[a-zA-Z][a-zA-Z0-9_\-/]*/;
 
 const describeActiveSymbol = (
-  bridge: ReturnType<typeof createCoreBridge>,
+  bridge: ReturnType<typeof mkCoreBridge>,
   out: vscode.OutputChannel,
 ): void => {
   const editor = vscode.window.activeTextEditor;
@@ -39,7 +39,7 @@ const describeActiveSymbol = (
   out.show(true);
 };
 
-const createFoldTracker = (): ((editor: vscode.TextEditor | undefined) => void) => {
+const mkFoldTracker = (): ((editor: vscode.TextEditor | undefined) => void) => {
   // DEVIATION(1.9): session-local Set state is a pragmatic VS Code adapter cache.
   // eslint-disable-next-line no-restricted-syntax
   const foldedDocs = new Set<string>();
@@ -57,7 +57,7 @@ const createFoldTracker = (): ((editor: vscode.TextEditor | undefined) => void) 
 
 const registerProviders = (
   args: {
-    readonly bridge: ReturnType<typeof createCoreBridge>;
+    readonly bridge: ReturnType<typeof mkCoreBridge>;
     readonly ctx: vscode.ExtensionContext;
     readonly maybeFold: (editor: vscode.TextEditor | undefined) => void;
     readonly out: vscode.OutputChannel;
@@ -67,9 +67,9 @@ const registerProviders = (
   // DEVIATION(1.9): ctx.subscriptions is a mutable VS Code adapter array.
   // eslint-disable-next-line functional/immutable-data
   ctx.subscriptions.push(
-    vscode.languages.registerHoverProvider(CNJ_SELECTOR, createHoverProvider(bridge.symbolIndex)),
-    vscode.languages.registerCodeLensProvider(CNJ_SELECTOR, createCodeLensProvider(bridge.symbolIndex)),
-    vscode.languages.registerFoldingRangeProvider(CNJ_SELECTOR, createFoldingProvider()),
+    vscode.languages.registerHoverProvider(CNJ_SELECTOR, mkHoverProvider(bridge.symbolIndex)),
+    vscode.languages.registerCodeLensProvider(CNJ_SELECTOR, mkCodeLensProvider(bridge.symbolIndex)),
+    vscode.languages.registerFoldingRangeProvider(CNJ_SELECTOR, mkFoldingProvider()),
     vscode.window.onDidChangeActiveTextEditor(maybeFold),
     vscode.commands.registerCommand('conjurer.showCandidateDetails', (id: string, score: number, status: string) => {
       void vscode.window.showInformationMessage(`${id}: score ${score} (${status})`);
@@ -82,8 +82,8 @@ export const activate = (ctx: vscode.ExtensionContext): void => {
   const out = vscode.window.createOutputChannel('Conjurer');
   // eslint-disable-next-line functional/immutable-data
   ctx.subscriptions.push(out);
-  const bridge = createCoreBridge(out);
-  const maybeFold = createFoldTracker();
+  const bridge = mkCoreBridge(out);
+  const maybeFold = mkFoldTracker();
   registerProviders({ bridge, ctx, maybeFold, out });
   maybeFold(vscode.window.activeTextEditor);
   registerLookupCommands(bridge, ctx);

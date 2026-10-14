@@ -7,7 +7,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { lookup, search, listAll, readSection, readGrimoire, parse, buildWorkspaceSnapshot, VALIDATION_RULE_DESCRIPTIONS, collectSymbolRefs } from '@conjurer/core';
 import type { SymbolIndex, SpecReader, EdnNode, EdnList } from '@conjurer/core';
-import { isSome, isErr, fromNullable, getOrElseOption, mapOption, intoMap } from '@tsfpp/prelude';
+import { isSome, isErr, fromNullable, getOrElseOption, mapOption, intoMap, sortWith, ordString } from '@tsfpp/prelude';
 
 /**
  * Dependencies for retrieval handlers.
@@ -140,7 +140,7 @@ export const handleCoverage = (
   const refs = intoMap(collectSymbolRefs(parsed.value).map((symbol) => [symbol, true] as const));
   const allSymbols = Array.from(ctx.index.symbols.values());
   const filtered = grimoire !== undefined ? allSymbols.filter((s) => s.grimoire === grimoire) : allSymbols;
-  const grimoireNames = Array.from(intoMap(filtered.map((s) => [s.grimoire, true] as const)).keys()).sort();
+  const grimoireNames = sortWith(ordString)(Array.from(intoMap(filtered.map((s) => [s.grimoire, true] as const)).keys()));
 
   const byGrimoire = grimoireNames.map((g) => {
     const available = filtered.filter((s) => s.grimoire === g);

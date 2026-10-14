@@ -1,7 +1,6 @@
 /**
  * Project-oriented MCP tools for dependency planning and workspace topology.
  */
-/* eslint-disable no-restricted-syntax -- DEVIATION(1.9): graph traversal and adapter cache require constructor-based collections at module boundary. */
 /* eslint-disable functional/no-loop-statements -- DEVIATION(4.2): dependency-graph traversals require explicit loops for deterministic bounded scans. */
 /* eslint-disable functional/immutable-data -- DEVIATION(2.3): local mutation is confined to ephemeral accumulators during graph assembly. */
 /* eslint-disable max-lines-per-function -- DEVIATION(3.4): tool handlers mirror MCP contract branches; decomposition deferred to dedicated refactor slice. */
@@ -21,7 +20,10 @@ const toContent = (text: string): ToolContent => [{ type: 'text', text }];
 // DEVIATION(2.4): Process-local evaluate cache — in-memory for the stdio session lifetime.
 // Session-local only; not shared across concurrent server instances.
 // DEVIATION(2.2): Adapter cache uses mutable Map for session-lifetime updates.
-const evaluateCache = new Map<string, { readonly cacheKey: string; readonly evaluatedAt: number }>();
+// eslint-disable-next-line no-restricted-syntax -- DEVIATION(1.9): Map/Set has no constructor-free equivalent.
+const evaluateCache = new Map<string, string>();
+/** Cache key reported when evaluate has neither a file nor a resolve id; fixed so the tool stays pure. */
+const UNSCOPED_CACHE_KEY = 'eval-unscoped';
 
 const ARTIFACT_NOTE = 'artifact field is intentionally empty — generation belongs to the IDE agent, not this server';
 
@@ -79,6 +81,7 @@ export const handleResolve = (
 
   const allFiles = Array.from(snapshot.files.values());
   // DEVIATION(2.2): Mutable map construction for SDK-adapter graph indexing.
+  // eslint-disable-next-line no-restricted-syntax -- DEVIATION(1.9): Map/Set has no constructor-free equivalent.
   const targetFileMap = new Map<string, string>();
   // DEVIATION(4.2): Graph materialisation loop over snapshot targets.
   for (const f of allFiles) {
@@ -86,6 +89,7 @@ export const handleResolve = (
     for (const t of f.doc.targets) targetFileMap.set(t.name, f.path);
   }
 
+  // eslint-disable-next-line no-restricted-syntax -- DEVIATION(1.9): Map/Set has no constructor-free equivalent.
   const entryTargetNames = new Set(entry.doc.targets.map((t) => t.name));
 
   const plan = order
@@ -138,7 +142,7 @@ export const handleEvaluate = (
   mode: string | undefined = undefined,
 ): ToolContent => {
   if (filePath === undefined) {
-    const cacheKey = getOrElseOption(() => `eval-${Date.now()}`)(fromNullable(resolveId));
+    const cacheKey = getOrElseOption(() => UNSCOPED_CACHE_KEY)(fromNullable(resolveId));
     return toContent(JSON.stringify({ cache_hit: false, cache_key: cacheKey, artifact: {}, artifact_note: ARTIFACT_NOTE, stale: [] }, null, 2));
   }
 
@@ -151,7 +155,7 @@ export const handleEvaluate = (
   const cacheKey = computeContextKey(snapshot, allFilePaths);
   const prior = evaluateCache.get(abs);
 
-  if (prior !== undefined && prior.cacheKey === cacheKey) {
+  if (prior === cacheKey) {
     return toContent(JSON.stringify({
       cache_hit: true,
       cache_key: cacheKey,
@@ -166,7 +170,7 @@ export const handleEvaluate = (
     ? [{ form_name: filePath, reason: 'workspace context changed since last evaluate' }]
     : [];
 
-  evaluateCache.set(abs, { cacheKey, evaluatedAt: Date.now() });
+  evaluateCache.set(abs, cacheKey);
 
   return toContent(JSON.stringify({
     cache_hit: false,
@@ -245,6 +249,7 @@ export const handleMaterialisePlan = (filePath: string): ToolContent => {
   const order = topoOrder(snapshot, abs);
 
   // DEVIATION(2.2): mutable map construction for target-to-file lookup.
+  // eslint-disable-next-line no-restricted-syntax -- DEVIATION(1.9): Map/Set has no constructor-free equivalent.
   const targetFileMap = new Map<string, string>();
   // DEVIATION(4.2): loop over snapshot to build index.
   for (const f of snapshot.files.values()) {

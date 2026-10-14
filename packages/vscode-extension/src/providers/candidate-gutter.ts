@@ -21,7 +21,7 @@ const makeGutterIcon = (color: string): vscode.Uri =>
     `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='5' fill='${color}'/%3E%3C/svg%3E`,
   );
 
-const createDecorationTypes = (): Record<StatusKey, vscode.TextEditorDecorationType> => ({
+const mkDecorationTypes = (): Record<StatusKey, vscode.TextEditorDecorationType> => ({
   proposed:  vscode.window.createTextEditorDecorationType({ gutterIconPath: makeGutterIcon(STATUS_COLORS.proposed),  gutterIconSize: 'contain' }),
   planned:   vscode.window.createTextEditorDecorationType({ gutterIconPath: makeGutterIcon(STATUS_COLORS.planned),   gutterIconSize: 'contain' }),
   hoisted:   vscode.window.createTextEditorDecorationType({ gutterIconPath: makeGutterIcon(STATUS_COLORS.hoisted),   gutterIconSize: 'contain' }),
@@ -99,7 +99,7 @@ const applyDecorations = (
 };
 
 export const registerCandidateGutter = (ctx: vscode.ExtensionContext): void => {
-  const types = createDecorationTypes();
+  const types = mkDecorationTypes();
 
   const refresh = (editor: vscode.TextEditor | undefined): void => {
     if (editor !== undefined) applyDecorations(editor, types);

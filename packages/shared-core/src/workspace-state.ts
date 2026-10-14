@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
-import { ok, err, isErr, intoMap } from '@tsfpp/prelude';
+import { ok, err, isErr, intoMap, sortWith, ordString } from '@tsfpp/prelude';
 import type { Result } from '@tsfpp/prelude';
 import { parse } from './edn-parser.js';
 import { toCnjModel } from './cnj-model.js';
@@ -129,7 +129,7 @@ export const computeContextKey = (
   files: ReadonlyArray<string>,
 ): string => {
   // Hashing the concatenation equals updating the hash file by file, in sorted order.
-  const contents = [...files].sort().map((f) => snapshot.files.get(f)?.content ?? '');
+  const contents = sortWith(ordString)(files).map((f) => snapshot.files.get(f)?.content ?? '');
   return createHash('sha256').update(contents.join('')).digest('hex').slice(0, 16);
 };
 

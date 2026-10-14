@@ -38,7 +38,7 @@ export type ForesightHealthReport = {
  *
  * @returns The current UTC date.
  */
-// DEVIATION(1.9): the clock is read here, at the I/O edge, and passed into pure checks as a value.
+// DEVIATION(4.6): the clock is read here, at the I/O edge, and passed into pure checks as a value.
 // eslint-disable-next-line no-restricted-syntax
 export const todayISO = (): string => new Date().toISOString().slice(0, 10);
 

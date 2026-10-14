@@ -88,7 +88,7 @@ const getLines = (document: vscode.TextDocument): ReadonlyArray<string> =>
 
 export type ConjurerFoldingProvider = vscode.FoldingRangeProvider;
 
-export const createFoldingProvider = (): ConjurerFoldingProvider => ({
+export const mkFoldingProvider = (): ConjurerFoldingProvider => ({
   provideFoldingRanges: (
     document: vscode.TextDocument,
     _context: vscode.FoldingContext,

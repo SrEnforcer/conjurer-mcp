@@ -1,7 +1,6 @@
 /**
  * Foresight tools — list_candidates over workspace f/candidate forms.
  */
-/* eslint-disable no-restricted-syntax -- DEVIATION(1.9): cluster grouping requires constructor-based Map at module boundary. */
 /* eslint-disable functional/no-loop-statements -- DEVIATION(4.2): candidate grouping traversal requires explicit loop over workspace entries. */
 /* eslint-disable functional/immutable-data -- DEVIATION(2.3): local mutation is confined to ephemeral cluster accumulator. */
 /* eslint-disable functional/prefer-readonly-type -- DEVIATION(2.2): SDK interop surfaces mutable shape annotations in adapter code paths. */
@@ -54,8 +53,10 @@ type ClusterView = {
   readonly candidates: ReadonlyArray<CandidateView>;
 };
 
+// eslint-disable-next-line no-restricted-syntax -- DEVIATION(1.9): Map/Set has no constructor-free equivalent.
 const HIDDEN_STATUSES = new Set<string>(['hoisted', 'abandoned']);
 
+// eslint-disable-next-line no-restricted-syntax -- DEVIATION(1.9): Map/Set has no constructor-free equivalent.
 const ACTIVE_STATUSES = new Set<string>(ACTIVE_CANDIDATE_STATUSES);
 
 const filterCandidates = (
@@ -74,6 +75,7 @@ const clusterKey = (candidate: CnjCandidateForm): string =>
 const buildClusterMap = (
   candidates: ReadonlyArray<CnjCandidateForm>,
 ): ReadonlyMap<string, ReadonlyArray<CnjCandidateForm>> => {
+  // eslint-disable-next-line no-restricted-syntax -- DEVIATION(1.9): Map/Set has no constructor-free equivalent.
   const clusterMap = new Map<string, Array<CnjCandidateForm>>();
   for (const candidate of candidates) {
     const key = clusterKey(candidate);

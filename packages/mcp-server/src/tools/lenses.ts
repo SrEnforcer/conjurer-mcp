@@ -1,7 +1,6 @@
 /**
  * Lens tools for workspace-level cross-file analysis.
  */
-/* eslint-disable no-restricted-syntax -- DEVIATION(1.9): graph traversal requires constructor-based collections at module boundary. */
 /* eslint-disable functional/no-loop-statements -- DEVIATION(4.2): dependency-graph traversals require explicit loops for deterministic bounded scans. */
 /* eslint-disable functional/immutable-data -- DEVIATION(2.3): local mutation is confined to ephemeral accumulators during graph assembly. */
 import { resolve as resolvePath } from 'node:path';
@@ -34,6 +33,7 @@ const reachableFrom = (
   edges: ReadonlyMap<string, ReadonlyArray<string>>,
 ): ReadonlyArray<string> => {
   // DEVIATION(4.2): BFS traversal loop for dependency graph reachability.
+  // eslint-disable-next-line no-restricted-syntax -- DEVIATION(1.9): Map/Set has no constructor-free equivalent.
   const result = new Set<string>([start]);
   const queue = [start];
   // DEVIATION(4.2): Queue-driven traversal loop over workspace graph.

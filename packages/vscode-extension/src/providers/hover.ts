@@ -24,7 +24,7 @@ export const buildHoverContent = (index: SymbolIndex, symbolName: string): strin
 
 export type ConjurerHoverProvider = vscode.HoverProvider;
 
-export const createHoverProvider = (index: SymbolIndex): ConjurerHoverProvider => ({
+export const mkHoverProvider = (index: SymbolIndex): ConjurerHoverProvider => ({
   provideHover: (document: vscode.TextDocument, position: vscode.Position): vscode.ProviderResult<vscode.Hover> => {
     const range = document.getWordRangeAtPosition(position, SYMBOL_PATTERN);
     if (range === undefined) return undefined;
