@@ -1,7 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { resolve } from 'node:path';
 import { isOk, isErr } from '@tsfpp/prelude';
-import { buildWorkspaceSnapshot, topoOrder, computeContextKey } from '../workspace-state.js';
+import { buildWorkspaceSnapshot, topoOrder, computeContextKey, isCnjFileReference } from '../workspace-state.js';
 
 const DESIGN_DIR = resolve(__dirname, '..', '..', '..', '..', 'design');
 const MCP_SERVER_CNJ = resolve(DESIGN_DIR, 'mcp-server.cnj');
@@ -94,5 +97,50 @@ describe('computeContextKey', () => {
     const k1 = computeContextKey(r.value, [MCP_SERVER_CNJ]);
     const k2 = computeContextKey(r.value, [MCP_SERVER_CNJ, CONJURER_CNJ]);
     expect(k1).not.toBe(k2);
+  });
+});
+
+describe('buildWorkspaceSnapshot — unreadable referenced files', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cnj-ws-'));
+  const entry = join(dir, 'entry.cnj');
+
+  beforeAll(() => {
+    writeFileSync(entry, '(charter "E" :version "1.0.0" :goals ["g"] :references ["a.cnj" "broken.cnj" "missing.cnj" "README.md" "https://example.com/spec.cnj"])');
+    writeFileSync(join(dir, 'a.cnj'), '(charter "A" :version "1.0.0" :goals ["g"] :references ["broken.cnj"])\n(target "a" :language "ts")');
+    writeFileSync(join(dir, 'broken.cnj'), '(target "lost" :language "ts"');
+  });
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('follows only local .cnj references, so a URL or a README is not reported as unreadable', () => {
+    const r = buildWorkspaceSnapshot(entry);
+    if (!isOk(r)) return expect.unreachable('expected a snapshot');
+    expect(r.value.unreadableFiles.map((u) => u.path)).toEqual([join(dir, 'broken.cnj'), join(dir, 'missing.cnj')]);
+  });
+
+  it('reports each unreadable file once, with its reason, and keeps the readable ones', () => {
+    const r = buildWorkspaceSnapshot(entry);
+    if (!isOk(r)) return expect.unreachable('expected a snapshot');
+    expect(Array.from(r.value.files.keys())).toEqual([entry, join(dir, 'a.cnj')]);
+    expect(r.value.unreadableFiles).toEqual([
+      { path: join(dir, 'broken.cnj'), reason: 'Parse error at 1:30: Expected rparen' },
+      { path: join(dir, 'missing.cnj'), reason: 'File not found' },
+    ]);
+  });
+
+  it('reports no unreadable files for the design workspace', () => {
+    const r = buildWorkspaceSnapshot(MCP_SERVER_CNJ);
+    if (!isOk(r)) return expect.unreachable('expected a snapshot');
+    expect(r.value.unreadableFiles).toEqual([]);
+  });
+});
+
+describe('isCnjFileReference', () => {
+  it('accepts local .cnj paths and rejects URLs and other file types', () => {
+    expect(['a.cnj', '../x/b.cnj', '/abs/c.cnj'].every(isCnjFileReference)).toBe(true);
+    expect(['https://example.com/a.cnj', 'file:///a.cnj', 'README.md', 'src/index.ts', 'https://www.npmjs.com/package/@tsfpp/standard']
+      .some(isCnjFileReference)).toBe(false);
   });
 });

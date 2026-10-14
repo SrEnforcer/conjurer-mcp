@@ -7,7 +7,9 @@ import { toCnjModel } from './cnj-model.js';
 import type { CnjDocument, CnjTarget, CnjModelError } from './cnj-model.js';
 import { bindingNames } from './references.js';
 import { describeCnjFileReason } from './workspace-state.js';
-import type { CnjFileError } from './workspace-state.js';
+import type { CnjFileError, UnreadableFile } from './workspace-state.js';
+
+export type { UnreadableFile } from './workspace-state.js';
 
 export type ResolvedRef = {
   readonly from: string;
@@ -22,12 +24,6 @@ export type UnresolvedRef = {
 };
 
 export type MissingPath = {
-  readonly path: string;
-  readonly reason: string;
-};
-
-/** A `.cnj` input the preflight could not read, so its targets and references are unknown. */
-export type UnreadableFile = {
   readonly path: string;
   readonly reason: string;
 };

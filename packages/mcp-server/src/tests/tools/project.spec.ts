@@ -1,15 +1,17 @@
 /* eslint-disable max-lines-per-function -- DEVIATION(3.4): integration-like scenario assertions remain grouped to preserve workspace-flow context. */
 import { describe, it, expect, vi } from 'vitest';
 import { fromNullable, getOrElseOption } from '@tsfpp/prelude';
-import { handleResolve, handlePreflight } from '../../tools/project.js';
+import { handleResolve, handlePreflight, handleEvaluate, handleMaterialisePlan } from '../../tools/project.js';
 import { handleLensDependencyGraph, handleWorkspaceSummary, handleLensOpenQuestions } from '../../tools/lenses.js';
 import { z } from 'zod';
 import { parseToolJson } from './tool-json.js';
 
 const Names = z.array(z.string());
+const UnreadableFiles = z.array(z.looseObject({ path: z.string(), reason: z.string() }));
 const ResolveSchema = z.looseObject({
   plan: z.array(z.looseObject({ name: z.string() })),
   unresolved: z.array(z.unknown()),
+  unreadable_files: UnreadableFiles.optional(),
 });
 const PreflightSchema = z.looseObject({
   project_name: z.string(),
@@ -23,6 +25,7 @@ const DependencyGraphSchema = z.looseObject({
   topo_order: Names,
   cycle_detected: z.boolean(),
   by_file: z.record(z.string(), Names),
+  unreadable_files: UnreadableFiles,
 });
 const WorkspaceSummarySchema = z.looseObject({
   files: z.array(z.looseObject({
@@ -31,11 +34,18 @@ const WorkspaceSummarySchema = z.looseObject({
   totals: z.looseObject({
     files: z.number(), targets: z.number(), decisions: z.number(), valid_files: z.number(), invalid_files: z.number(),
   }),
+  unreadable_files: UnreadableFiles,
 });
 const OpenQuestionsSchema = z.looseObject({
   total_files_scanned: z.number(),
   total_open: z.number(),
   files_with_open: z.array(z.looseObject({ file: z.string(), title: z.string(), open: Names })),
+  unreadable_files: UnreadableFiles,
+});
+const MaterialisePlanSchema = z.looseObject({ unreadable_files: UnreadableFiles });
+const EvaluateSchema = z.looseObject({
+  cache_hit: z.boolean(),
+  stale: z.array(z.looseObject({ form_name: z.string(), reason: z.string() })),
 });
 
 const VALID = `(charter "P" :version "1.0.0" :goals ["g"])\n(target "app" :language "ts" :standard "esm" :produces ["lib"] :modules [])`;
@@ -53,6 +63,13 @@ const LEAF_CNJ = [
   '(target "leaf" :language "ts" :standard "esm" :produces ["lib"] :modules [] :from "core")',
 ].join('\n');
 
+// An entry that references the core file, a file that does not parse, and one that does not exist.
+const PARTREF_CNJ = [
+  '(charter "Partial" :version "1.0.0" :goals ["g"]',
+  '  :references ["/vfs/graph/core.cnj" "/vfs/partref/broken.cnj" "/vfs/partref/missing.cnj"])',
+  '(target "partial" :language "ts" :standard "esm" :produces ["lib"] :modules [] :from "core")',
+].join('\n');
+
 const virtualFiles: Readonly<Record<string, string>> = {
   '/vfs/resolve/proj.cnj': VALID,
   '/vfs/pkg/proj.cnj': VALID,
@@ -60,6 +77,8 @@ const virtualFiles: Readonly<Record<string, string>> = {
   '/vfs/partly/broken.cnj': BAD_EDN,
   '/vfs/graph/leaf.cnj': LEAF_CNJ,
   '/vfs/graph/core.cnj': CORE_CNJ,
+  '/vfs/partref/entry.cnj': PARTREF_CNJ,
+  '/vfs/partref/broken.cnj': BAD_EDN,
 };
 
 const virtualDirs: Readonly<Record<string, ReadonlyArray<string>>> = {
@@ -306,5 +325,47 @@ describe('handleLensOpenQuestions', () => {
     const d = parseToolJson(r, OpenQuestionsSchema);
     const core = d.files_with_open.find((f) => f.file === '/vfs/graph/core.cnj');
     expect(core?.title).toBe('Core');
+  });
+});
+
+describe('workspace tools — unreadable referenced files', () => {
+  const ENTRY = '/vfs/partref/entry.cnj';
+  const EXPECTED_PATHS = ['/vfs/partref/broken.cnj', '/vfs/partref/missing.cnj'];
+  const pathsOf = (files: ReadonlyArray<{ readonly path: string }> | undefined): ReadonlyArray<string> =>
+    (files ?? []).map((f) => f.path);
+
+  it('reports them from every lens and planning tool', () => {
+    expect(pathsOf(parseToolJson(handleLensDependencyGraph(ENTRY), DependencyGraphSchema).unreadable_files)).toEqual(EXPECTED_PATHS);
+    expect(pathsOf(parseToolJson(handleWorkspaceSummary(ENTRY), WorkspaceSummarySchema).unreadable_files)).toEqual(EXPECTED_PATHS);
+    expect(pathsOf(parseToolJson(handleLensOpenQuestions(ENTRY), OpenQuestionsSchema).unreadable_files)).toEqual(EXPECTED_PATHS);
+    expect(pathsOf(parseToolJson(handleResolve(ENTRY), ResolveSchema).unreadable_files)).toEqual(EXPECTED_PATHS);
+    expect(pathsOf(parseToolJson(handleMaterialisePlan(ENTRY), MaterialisePlanSchema).unreadable_files)).toEqual(EXPECTED_PATHS);
+  });
+
+  it('gives the reason for each: a parse error with its location, or a missing file', () => {
+    const d = parseToolJson(handleWorkspaceSummary(ENTRY), WorkspaceSummarySchema);
+    expect(d.unreadable_files[0]?.reason).toMatch(/^Parse error at \d+:\d+: /);
+    expect(d.unreadable_files[1]?.reason).toBe('File not found');
+  });
+
+  it('keeps working over the files it could read', () => {
+    const d = parseToolJson(handleWorkspaceSummary(ENTRY), WorkspaceSummarySchema);
+    expect(d.files.map((f) => f.file)).toEqual([ENTRY, '/vfs/graph/core.cnj']);
+  });
+
+  it('never lets evaluate report a cache hit, and names each unreadable file as stale', () => {
+    const first = parseToolJson(handleEvaluate(ENTRY), EvaluateSchema);
+    const second = parseToolJson(handleEvaluate(ENTRY), EvaluateSchema);
+    expect(first.cache_hit).toBe(false);
+    expect(second.cache_hit).toBe(false);
+    expect(second.stale.map((s) => s.form_name)).toEqual(['/vfs/partref/broken.cnj', '/vfs/partref/missing.cnj']);
+    expect(second.stale[0]?.reason).toMatch(/^unreadable: Parse error at /);
+  });
+
+  it('still lets evaluate hit the cache for a workspace that reads cleanly', () => {
+    handleEvaluate('/vfs/graph/leaf.cnj');
+    const again = parseToolJson(handleEvaluate('/vfs/graph/leaf.cnj'), EvaluateSchema);
+    expect(again.cache_hit).toBe(true);
+    expect(again.stale).toEqual([]);
   });
 });

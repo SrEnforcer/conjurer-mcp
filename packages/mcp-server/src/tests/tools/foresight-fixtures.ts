@@ -133,6 +133,10 @@ const virtualFiles: Readonly<Record<string, string>> = {
   '/vfs/foresight/thin.cnj': `${CHARTER}\n${CAND_THIN}`,
   '/vfs/foresight/high-no-cond.cnj': `${CHARTER}\n${CAND_HIGH_NO_COND}`,
   '/vfs/foresight/orphan-hoist.cnj': `${CHARTER}\n${CAND_HEALTHY}\n${HOIST_ORPHAN}`,
+  // A healthy backlog whose charter also references a file that does not parse.
+  '/vfs/foresight/partref.cnj': `(charter "P" :version "1.0.0" :goals ["g"] :references ["/vfs/foresight/broken.cnj"])
+${CAND_HEALTHY}\n${HOIST_VALID}`,
+  '/vfs/foresight/broken.cnj': '(charter "Broken"',
   '/vfs/foresight/all-issues.cnj': `${CHARTER}\n${CAND_STALE}\n${CAND_THIN}\n${CAND_HIGH_NO_COND}\n${HOIST_ORPHAN}`,
 };
 

@@ -22,8 +22,16 @@ export type UnresolvedDependency = {
   readonly dependency: string;
 };
 
+/** A `.cnj` input that could not be read, so its targets and references are unknown. */
+export type UnreadableFile = {
+  readonly path: string;
+  readonly reason: string;
+};
+
 export type WorkspaceSnapshot = {
   readonly files: ReadonlyMap<string, ParsedFileEntry>;
+  /** Files reached through charter `:references` that could not be read; never silently dropped. */
+  readonly unreadableFiles: ReadonlyArray<UnreadableFile>;
   readonly targetEdges: ReadonlyMap<string, ReadonlyArray<string>>;  // target name → from targets
   /** Target name → `:from` names that resolve to a binding (`def`, `:manifest`) rather than a target. */
   readonly bindingDeps: ReadonlyMap<string, ReadonlyArray<string>>;
@@ -87,6 +95,16 @@ export const describeWorkspaceError = (e: WorkspaceError): string => {
   }
 };
 
+/**
+ * Whether a charter `:references` entry names a local `.cnj` file, the only kind the
+ * workspace follows. A URL or another file type (README, source) is a plain reference.
+ *
+ * @param ref - The reference as written.
+ * @returns True for a local `.cnj` path.
+ */
+export const isCnjFileReference = (ref: string): boolean =>
+  ref.endsWith('.cnj') && !/^[a-z][a-z0-9+.-]*:\/\//i.test(ref);
+
 const parseEntry = (filePath: string): Result<ParsedFileEntry, CnjFileError> => {
   if (!existsSync(filePath)) return err({ kind: 'file_not_found', path: filePath });
   const content = readFileSync(filePath, 'utf8');
@@ -96,6 +114,7 @@ const parseEntry = (filePath: string): Result<ParsedFileEntry, CnjFileError> => 
   if (isErr(doc)) return err({ kind: 'file_unmodelable', path: filePath, cause: doc.error });
   const dir = dirname(filePath);
   const directRefs = doc.value.charter.references
+    .filter(isCnjFileReference)
     .map((ref) => resolve(dir, ref))
     .filter((abs) => abs !== filePath);
   return ok({ path: filePath, content, doc: doc.value, directRefs });
@@ -103,18 +122,26 @@ const parseEntry = (filePath: string): Result<ParsedFileEntry, CnjFileError> => 
 
 type Discovery = {
   readonly visited: ReadonlyMap<string, ParsedFileEntry>;
+  readonly unreadable: ReadonlyArray<UnreadableFile>;
   readonly queue: ReadonlyArray<string>;
 };
 
-// Breadth-first over charter :references, transitively; a file that does not parse is skipped.
-const discoverStep = (d: Discovery): ReadonlyMap<string, ParsedFileEntry> => {
+const isSeen = (d: Discovery, path: string): boolean =>
+  d.visited.has(path) || d.unreadable.some((u) => u.path === path);
+
+// Breadth-first over charter :references, transitively. A file that cannot be read is
+// recorded with its reason, once, and its own references stay unknown.
+const discoverStep = (d: Discovery): Discovery => {
   const [next, ...rest] = d.queue;
-  if (next === undefined) return d.visited;
-  if (d.visited.has(next)) return discoverStep({ visited: d.visited, queue: rest });
+  if (next === undefined) return d;
+  if (isSeen(d, next)) return discoverStep({ ...d, queue: rest });
   const entry = parseEntry(next);
-  if (isErr(entry)) return discoverStep({ visited: d.visited, queue: rest });
+  if (isErr(entry)) {
+    return discoverStep({ ...d, unreadable: [...d.unreadable, { path: next, reason: describeCnjFileReason(entry.error) }], queue: rest });
+  }
   const visited = intoMap([...d.visited.entries(), [next, entry.value] as const]);
-  return discoverStep({ visited, queue: [...rest, ...entry.value.directRefs.filter((ref) => !visited.has(ref))] });
+  const found = { ...d, visited };
+  return discoverStep({ ...found, queue: [...rest, ...entry.value.directRefs.filter((ref) => !isSeen(found, ref))] });
 };
 
 // A later target with the same name replaces an earlier one, as Map construction does.
@@ -192,7 +219,8 @@ export const buildWorkspaceSnapshot = (entryFile: string): Result<WorkspaceSnaps
   const entryPath = resolve(entryFile);
   const entry = parseEntry(entryPath);
   if (isErr(entry)) return err({ kind: 'entry_unparseable', path: entryFile, cause: entry.error });
-  const files = discoverStep({ visited: intoMap([[entryPath, entry.value]]), queue: entry.value.directRefs });
+  const discovered = discoverStep({ visited: intoMap([[entryPath, entry.value]]), unreadable: [], queue: entry.value.directRefs });
+  const files = discovered.visited;
   const declaredFroms = buildTargetEdges(files);
   const targetNames = Array.from(declaredFroms.keys());
   const bindings = Array.from(files.values()).flatMap((entry) => bindingNames(entry.doc));
@@ -217,5 +245,7 @@ export const buildWorkspaceSnapshot = (entryFile: string): Result<WorkspaceSnaps
     initial,
   );
 
-  return ok({ files, targetEdges, bindingDeps, unresolvedDeps, cycleDetected: topoResult.cycleDetected });
+  return ok({
+    files, unreadableFiles: discovered.unreadable, targetEdges, bindingDeps, unresolvedDeps, cycleDetected: topoResult.cycleDetected,
+  });
 };

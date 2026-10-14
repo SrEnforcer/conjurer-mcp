@@ -5,9 +5,11 @@ import { z } from 'zod';
 import { parseToolJson } from './tool-json.js';
 
 const Conditions = z.array(z.string());
+const UnreadableFiles = z.array(z.looseObject({ path: z.string(), reason: z.string() }));
 const ListCandidatesSchema = z.looseObject({
   total_candidates: z.number(),
   total_files_scanned: z.number(),
+  unreadable_files: UnreadableFiles,
   clusters: z.array(z.looseObject({
     cluster: z.string(),
     max_score: z.number(),
@@ -26,6 +28,7 @@ const HoistReadinessSchema = z.looseObject({
   total_files_scanned: z.number(),
   median_total_score: z.number().nullable(),
   candidates_with_reassessment: z.number(),
+  unreadable_files: UnreadableFiles,
   candidates: z.array(z.looseObject({ id: z.string(), conditions: Conditions, has_reassessment: z.boolean() })),
 });
 

@@ -102,6 +102,7 @@ export const handleLensDependencyGraph = (
     topo_order: order,
     cycle_detected: snapshot.cycleDetected,
     by_file: byFile,
+    unreadable_files: snapshot.unreadableFiles,
     scope: scopeMeta(abs, snapshot.files.size),
   }, null, 2));
 };
@@ -132,6 +133,7 @@ export const handleLensOpenQuestions = (filePath: string): ToolContent => {
     files_with_open: filesWithOpen,
     total_open: totalOpen,
     total_files_scanned: snapshot.files.size,
+    unreadable_files: snapshot.unreadableFiles,
     scope: scopeMeta(abs, snapshot.files.size),
   }, null, 2));
 };
@@ -174,6 +176,7 @@ export const handleWorkspaceSummary = (filePath: string): ToolContent => {
   return toContent(JSON.stringify({
     files,
     totals,
+    unreadable_files: snapshot.unreadableFiles,
     scope: scopeMeta(abs, snapshot.files.size),
   }, null, 2));
 };

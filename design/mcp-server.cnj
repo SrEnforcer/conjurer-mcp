@@ -381,11 +381,20 @@
                 does not block: module files do not exist before materialisation. When a
                 workspace entry file does not parse, the workspace error now carries the
                 parse error instead of only naming the file. Referenced files that do not
-                parse are still skipped by the workspace tools; see :open."}]
-  :open [
-    "Workspace tools (lens_*, resolve, materialise_plan, workspace_summary) skip a
-     charter :references file that does not parse, without saying so. Should
-     WorkspaceSnapshot carry the unreadable files and each tool report them?"]
+                parse are still skipped by the workspace tools; see :open."}
+    {:id       :workspace-reports-unreadable
+     :date     "2026-10-14"
+     :decision "Closes the open question left by :preflight-reports-unreadable. A file
+                reached through charter :references that cannot be read is recorded in
+                WorkspaceSnapshot.unreadableFiles, once, with the same {path, reason} as the
+                preflight; its own references stay unknown. Every workspace tool returns
+                unreadable_files and keeps working over the files it could read.
+                lens_foresight_health is not consistent while any file is unreadable,
+                because that file's candidates went unchecked; the extension's status bar
+                lists such files as issues for the same reason. evaluate never reports a
+                cache hit while a file is unreadable, since the context key covers only
+                files that were read, and names each unreadable file in stale."}]
+  :open []
   :decided [
     "conjurer://grimoire/<name> MCP resources: yes (2026-06-09 decision above)."]
   :outputs {
@@ -501,7 +510,8 @@
                          :known_symbol :boolean
                          :total_files_scanned :number
                          :files_with_reference [{:file :string
-                                                  :reference_count :number}]}}
+                                                  :reference_count :number}]
+                         :unreadable_files [{:path :string :reason :string}]}}
   :backed-by   [:symbol-index :workspace-state]
   :determinism :pure
   :token-note  "Answers 'who uses this symbol?' without the agent having to call
@@ -663,7 +673,8 @@
   :returns     {:format :structured
                 :shape  {:plan [{:form :string :file :string :reason :string}]
                          :dependency_graph :map
-                         :unresolved [{:symbol :string :expected_in :string}]}}
+                         :unresolved [{:symbol :string :expected_in :string}]
+                         :unreadable_files [{:path :string :reason :string}]}}
   :backed-by   :validation
   :determinism :pure
   :token-note  "Returns resolved structure directly so the LLM does not spend
@@ -735,7 +746,8 @@
                          :edges   [{:from :string :to :string}]
                          :topo_order   [:string]
                          :cycle_detected :boolean
-                         :by_file {:string [:string]}}}
+                         :by_file {:string [:string]}
+                         :unreadable_files [{:path :string :reason :string}]}}
   :backed-by   :workspace-state
   :determinism :pure
   :token-note  "Pure view over an already-computed snapshot. The agent gets the
@@ -752,7 +764,8 @@
                 :shape  {:files_with_open [{:file :string :title :string
                                              :open [:string]}]
                          :total_open          :number
-                         :total_files_scanned :number}}
+                         :total_files_scanned :number
+                         :unreadable_files [{:path :string :reason :string}]}}
   :backed-by   :workspace-state
   :determinism :pure
   :token-note  "Pure fold over charter.open arrays in the workspace snapshot.
@@ -772,7 +785,8 @@
                                     :violations :number}]
                          :totals  {:files :number :targets :number
                                    :decisions :number :open :number
-                                   :valid_files :number :invalid_files :number}}}
+                                   :valid_files :number :invalid_files :number}
+                         :unreadable_files [{:path :string :reason :string}]}}
   :backed-by   [:workspace-state :validation]
   :determinism :pure
   :token-note  "One call instead of N+1. Coverage pct is omitted by design —
@@ -806,7 +820,8 @@
                                                    :scores      :map
                                                    :added       :string
                                                    :rationale   :string
-                                                   :conditions  [:string]}]}]}}
+                                                   :conditions  [:string]}]}]
+                         :unreadable_files [{:path :string :reason :string}]}}
   :backed-by   [:cnj-model :workspace-state]
   :determinism :pure
   :token-note  "Makes the f/candidate backlog triageable in one call: ranked by
@@ -839,7 +854,8 @@
                                        :scores           :map
                                        :conditions       [:string]
                                        :days_since_added :number
-                                       :has_reassessment :boolean}]}}
+                                       :has_reassessment :boolean}]
+                         :unreadable_files [{:path :string :reason :string}]}}
   :backed-by   [:cnj-model :workspace-state]
   :determinism :pure
   :token-note  "Structures the pre-hoist briefing in one call: the agent need not
@@ -893,7 +909,8 @@
                          :lifecycle_distribution      {:string :number}
                          :total_candidates_scanned    :number
                          :total_hoists_scanned        :number
-                         :total_files_scanned         :number}}
+                         :total_files_scanned         :number
+                         :unreadable_files [{:path :string :reason :string}]}}
   :backed-by   [:foresight-health :cnj-model :workspace-state]
   :determinism :pure
   :token-note  "All five checks are pure arithmetic and string operations over the model.
@@ -988,7 +1005,7 @@
                       effects beyond reading files; no mutable state. The server
                       layer holds the evaluate cache; this module only computes."
      :exports ["buildWorkspaceSnapshot" "topoOrder" "computeContextKey"
-               "WorkspaceSnapshot" "ParsedFileEntry"]
+               "WorkspaceSnapshot" "ParsedFileEntry" "UnreadableFile"]
      :est-lines 260}
     {:module "types.ts"
      :responsibility "Shared type definitions exported at the package boundary

@@ -11,6 +11,7 @@ const TraceSymbolSchema = z.looseObject({
   known_symbol: z.boolean(),
   total_files_scanned: z.number(),
   files_with_reference: z.array(z.looseObject({ file: z.string(), reference_count: z.number() })),
+  unreadable_files: z.array(z.looseObject({ path: z.string(), reason: z.string() })),
 });
 
 // Two top-level forms referencing foo/bar twice (once in charter :backed-by, once in target :from)

@@ -1,10 +1,11 @@
 /* eslint-disable functional/immutable-data -- DEVIATION(2.3): status bar item properties are mutated in place; VS Code StatusBarItem has no immutable update API. */
+import { basename } from 'node:path';
 import * as vscode from 'vscode';
 import { buildWorkspaceSnapshot, computeForesightHealth, todayISO } from '@conjurer/core';
 import type { WorkspaceSnapshot, CnjCandidateForm, CnjHoist } from '@conjurer/core';
 import { isErr } from '@tsfpp/prelude';
 
-export type HealthIssueKind = 'stale' | 'thin_rationale' | 'orphaned_hoist' | 'high_score_no_conditions';
+export type HealthIssueKind = 'unreadable_file' | 'stale' | 'thin_rationale' | 'orphaned_hoist' | 'high_score_no_conditions';
 
 export type HealthIssue = {
   readonly kind: HealthIssueKind;
@@ -20,7 +21,8 @@ const HEALTH_THRESHOLDS = { staleDays: 30, minRationaleLength: 20, highScoreThre
  *
  * @param snapshot - Workspace snapshot to check.
  * @param today - Reference date `YYYY-MM-DD`; defaults to the current date.
- * @returns One issue per diagnostic, in the order stale, thin, orphaned, high-score.
+ * @returns One issue per diagnostic, in the order unreadable file, stale, thin, orphaned, high-score.
+ *   A file that could not be read had its candidates go unchecked, so it is an issue too.
  */
 export const computeHealthIssues = (snapshot: WorkspaceSnapshot, today: string = todayISO()): ReadonlyArray<HealthIssue> => {
   const entries = Array.from(snapshot.files.values());
@@ -28,6 +30,7 @@ export const computeHealthIssues = (snapshot: WorkspaceSnapshot, today: string =
   const hoists: ReadonlyArray<CnjHoist> = entries.flatMap((e) => e.doc.hoists);
   const report = computeForesightHealth(candidates, hoists, { ...HEALTH_THRESHOLDS, today });
   return [
+    ...snapshot.unreadableFiles.map((u) => ({ kind: 'unreadable_file' as const, id: u.path, label: basename(u.path), detail: u.reason })),
     ...report.stale_candidates.map((s) => ({ kind: 'stale' as const, id: s.id, label: s.label, detail: `${s.days_since_added}d old, no reassessment` })),
     ...report.thin_rationale.map((s) => ({ kind: 'thin_rationale' as const, id: s.id, label: s.label, detail: `rationale ${s.rationale_length} chars < ${HEALTH_THRESHOLDS.minRationaleLength}` })),
     ...report.orphaned_hoists.map((s) => ({ kind: 'orphaned_hoist' as const, id: s.of, label: `hoist for ${s.of}`, detail: 'no matching f/candidate' })),
