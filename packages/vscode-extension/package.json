@@ -69,6 +69,26 @@
         "title": "Conjurer: Describe symbol"
       }
     ],
+    "configuration": {
+      "title": "Conjurer",
+      "properties": {
+        "conjurer.promptTarget": {
+          "type": "string",
+          "enum": [
+            "vscodeChat",
+            "claudeCode",
+            "clipboard"
+          ],
+          "enumDescriptions": [
+            "VS Code's built-in chat view (GitHub Copilot Chat).",
+            "A new Claude Code tab with the prompt in its input box, not yet sent: review it and press Enter. Needs the Claude Code extension.",
+            "Copy the prompt to the clipboard, to paste into any chat."
+          ],
+          "default": "vscodeChat",
+          "markdownDescription": "Where the AI-assisted commands (**Refine form with AI**, **Resolve open questions with AI** and the candidate and goal commands) send the prompt they build. If the chosen chat cannot be opened, the prompt is copied to the clipboard instead."
+        }
+      }
+    },
     "menus": {
       "editor/context": [
         {

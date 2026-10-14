@@ -215,7 +215,7 @@ export const buildArguePrompt = (
  * project knowledge (settled decisions) and stated future intent (candidates).
  * Pure — no side effects, fully testable.
  */
-const effectiveTotal = (candidate: CnjCandidateForm): number =>
+export const effectiveTotal = (candidate: CnjCandidateForm): number =>
   Array.from(effectiveScores(candidate).values()).reduce((left, right) => left + right, 0);
 
 const isActiveCandidate = (candidate: CnjCandidateForm): boolean =>
