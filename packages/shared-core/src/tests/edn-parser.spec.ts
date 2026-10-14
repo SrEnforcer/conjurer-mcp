@@ -246,24 +246,63 @@ describe('parse — ratios', () => {
   });
 });
 
-describe('parse — numbers that have no finite value', () => {
-  const errorOf = (src: string): string => {
-    const r = parse(src);
-    return isErr(r) ? `${r.error.line}:${r.error.column} ${r.error.message}` : 'parsed';
-  };
+const errorOf = (src: string): string => {
+  const r = parse(src);
+  return isErr(r) ? `${r.error.line}:${r.error.column} ${r.error.message}` : 'parsed';
+};
 
+describe('parse — numbers that cannot be read exactly', () => {
   it('rejects a ratio with a zero denominator, at the token', () => {
     expect(errorOf('[1 1/0]')).toBe("1:4 Ratio '1/0' divides by zero");
     expect(errorOf('-1/0')).toBe("1:1 Ratio '-1/0' divides by zero");
     expect(errorOf('0/0')).toBe("1:1 Ratio '0/0' divides by zero");
   });
 
-  it('rejects an integer past the double range instead of reading Infinity', () => {
-    expect(errorOf('9'.repeat(400))).toBe(`1:1 Number '${'9'.repeat(24)}…' is out of range`);
+  it('accepts integers up to ±(2^53 − 1) and rejects the first ones past it', () => {
+    const LIMIT = 'integers must be within ±(2^53 − 1)';
+    expect(errorOf('9007199254740991 -9007199254740991')).toBe('parsed');
+    expect(errorOf('9007199254740992')).toBe(`1:1 Integer '9007199254740992' cannot be read exactly: ${LIMIT}`);
+    expect(errorOf('[0 -9007199254740993]')).toBe(`1:4 Integer '-9007199254740993' cannot be read exactly: ${LIMIT}`);
   });
 
-  it('rejects a ratio whose denominator is past the double range', () => {
-    expect(errorOf(`1/${'9'.repeat(400)}`)).toMatch(/^1:1 Number '1\/9+…' is out of range$/);
+  it('rejects an integer past the double range instead of reading Infinity', () => {
+    expect(errorOf('9'.repeat(400))).toBe(`1:1 Integer '${'9'.repeat(24)}…' cannot be read exactly: integers must be within ±(2^53 − 1)`);
+  });
+
+  it('rejects a ratio when either part is past the safe range', () => {
+    expect(errorOf('9007199254740993/2')).toMatch(/^1:1 Ratio '9007199254740993\/2' cannot be read exactly/);
+    expect(errorOf(`1/${'9'.repeat(400)}`)).toMatch(/^1:1 Ratio '1\/9+…' cannot be read exactly/);
+  });
+
+  it('reads a decimal as the nearest double but rejects one past the double range', () => {
+    expect(errorOf('9007199254740993.5')).toBe('parsed');
+    expect(errorOf(`${'9'.repeat(400)}.5`)).toBe(`1:1 Number '${'9'.repeat(24)}…' is out of range`);
+  });
+
+});
+
+// Digit runs of three sizes: short, around 2^53 (16 digits), and past the double range.
+const digitRun = (minLength: number, maxLength: number): fc.Arbitrary<string> =>
+  fc.string({ unit: fc.constantFrom(...'0123456789'), minLength, maxLength });
+const integerRun = fc.oneof(digitRun(1, 5), digitRun(15, 20));
+const anyRun = fc.oneof(integerRun, digitRun(309, 400));
+const signed = (run: fc.Arbitrary<string>): fc.Arbitrary<string> =>
+  fc.tuple(fc.boolean(), run).map(([neg, d]) => `${neg ? '-' : ''}${d}`);
+const numberTail = fc.oneof(
+  fc.constant(''),
+  anyRun.map((d) => `.${d}`),
+  fc.oneof(fc.constant('0'), anyRun).map((d) => `/${d}`),
+);
+
+describe('parse — numbers that cannot be read exactly: properties', () => {
+  it('reads every safe integer exactly', () => {
+    fc.assert(
+      fc.property(fc.maxSafeInteger(), (n) => {
+        const r = parse(String(n));
+        const node = isOk(r) ? r.value[0] : undefined;
+        expect(node?.type === 'number' ? node.value : 'missing').toBe(n);
+      }),
+    );
   });
 
   it('reads every ratio with a non-zero denominator as its finite quotient', () => {
@@ -277,17 +316,22 @@ describe('parse — numbers that have no finite value', () => {
   });
 
   it('never yields NaN or Infinity for any number the lexer admits', () => {
-    // Short and past-the-double-range digit runs, and zero denominators, each come up often.
-    const digits = (minLength: number, maxLength: number): fc.Arbitrary<string> =>
-      fc.string({ unit: fc.constantFrom(...'0123456789'), minLength, maxLength });
-    const run = fc.oneof(digits(1, 5), digits(309, 400));
-    const tail = fc.oneof(fc.constant(''), run.map((d) => `.${d}`), fc.oneof(fc.constant('0'), run).map((d) => `/${d}`));
-    const numberText = fc.tuple(fc.boolean(), run, tail).map(([neg, whole, rest]) => `${neg ? '-' : ''}${whole}${rest}`);
     fc.assert(
-      fc.property(numberText, (src) => {
+      fc.property(fc.tuple(signed(anyRun), numberTail).map(([whole, tail]) => whole + tail), (src) => {
         const r = parse(src);
         const node = isOk(r) ? r.value[0] : undefined;
         expect(node === undefined || (node.type === 'number' && Number.isFinite(node.value))).toBe(true);
+      }),
+    );
+  });
+
+  it('reads an integer exactly or rejects it, never rounding it', () => {
+    fc.assert(
+      fc.property(signed(integerRun), (src) => {
+        const r = parse(src);
+        const node = isOk(r) ? r.value[0] : undefined;
+        if (node?.type !== 'number') return;
+        expect(BigInt(node.value)).toBe(BigInt(src));
       }),
     );
   });

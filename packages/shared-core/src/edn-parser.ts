@@ -229,19 +229,25 @@ const clip = (text: string): string => (text.length > 24 ? `${text.slice(0, 24)}
 
 /**
  * Number token to a finite value; a ratio such as `1/5` becomes its quotient.
- * The lexer admits only `-?digits` with an optional `.digits` or `/digits`, so parseFloat
- * reads each part exactly; what it cannot represent (a zero denominator, a value past the
- * double range) is a parse error rather than NaN or Infinity in the tree (TSF++ Rule 1.13).
+ * The lexer admits only `-?digits` with an optional `.digits` or `/digits`. A decimal must be
+ * finite. An integer, and each part of a ratio, must be a safe integer (within ±(2^53 − 1)),
+ * because past that a double silently rounds it to a neighbour. Anything else is a parse
+ * error rather than NaN, Infinity or a changed value in the tree (TSF++ Rule 1.13).
  */
 const numValue = (t: Token): Result<number, ParseError> => {
+  const fail = (message: string): Result<number, ParseError> => err(mkErr(message, t.line, t.column));
+  if (t.value.includes('.')) {
+    const x = Number.parseFloat(t.value);
+    return isFiniteNumber(x) ? ok(x) : fail(`Number '${clip(t.value)}' is out of range`);
+  }
   const [num = '', den] = t.value.split('/');
-  const outOfRange = err(mkErr(`Number '${clip(t.value)}' is out of range`, t.line, t.column));
+  const label = den === undefined ? 'Integer' : 'Ratio';
   const n = Number.parseFloat(num);
-  if (!isFiniteNumber(n)) return outOfRange;
-  if (den === undefined) return ok(n);
-  const d = Number.parseFloat(den);
-  if (d === 0) return err(mkErr(`Ratio '${clip(t.value)}' divides by zero`, t.line, t.column));
-  return isFiniteNumber(d) ? ok(n / d) : outOfRange;
+  const d = den === undefined ? 1 : Number.parseFloat(den);
+  if (!Number.isSafeInteger(n) || !Number.isSafeInteger(d)) {
+    return fail(`${label} '${clip(t.value)}' cannot be read exactly: integers must be within ±(2^53 − 1)`);
+  }
+  return d === 0 ? fail(`Ratio '${clip(t.value)}' divides by zero`) : ok(n / d);
 };
 
 const parseNumber = (s: PS): PR<EdnNode> => {
