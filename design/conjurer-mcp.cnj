@@ -15,7 +15,7 @@
 (charter "Conjurer MCP Toolchain"
   :version  "0.1.0"
   :created  "2026-06-05"
-  :updated  "2026-06-09"   ;; validate_symbol_usage implemented
+  :updated  "2026-10-14"
   :domain   "A local-first Model Context Protocol server, and companion VS Code
              extension, that serve targeted Conjurer specification content —
              symbols, sections, examples, validation — to an IDE coding agent so
@@ -273,7 +273,7 @@
                 call. Foresight rationale document written to
                 design/conjurer-spec-foresight-rationale.md and the foresight.md
                 grimoire was accepted into the conjurer-spec. 386/386 tests pass."}
-    {:id :materialise_plan-2026-06-12
+    {:id :materialise-plan-2026-06-12
      :date "2026-06-12"
      :decision "materialise_plan hoisted. Given a resolved WorkspaceSnapshot + preflight report,
                 emit a dependency-ordered task list: {order, target, file, depends_on, reason,
@@ -338,7 +338,7 @@
   :language    :typescript
   :location    "@tsfpp/standard (npm) — normative source; profiles in
                 @tsfpp/eslint-config and @tsfpp/tsconfig"
-  :version     "@tsfpp/standard ^1.3.0"
+  :version     "@tsfpp/standard ^5.0.1"   ;; with eslint-config ^2.1.0, tsconfig ^1.0.0, prelude ^2.5.0
   :enforces    ["Max 400 lines per module; 800 only with a documented deviation"
                 "One clear responsibility per module; split when a second emerges"
                 "Explicit exported types at every package boundary"
@@ -359,7 +359,7 @@
                 stdio and HTTP transports. This project uses tools (and possibly
                 resources) over stdio."
   :location    "https://modelcontextprotocol.io"
-  :version     "2025-06-18"   ;; protocol revision; confirm against SDK at build time
+  :version     "2025-11-25"   ;; protocol revision: LATEST_PROTOCOL_VERSION of @modelcontextprotocol/sdk 1.29.0
   :enforces    ["Tools declare a name, description, and JSON-Schema input schema"
                 "Tool results are content blocks (text/structured), not raw values"
                 "stdio transport: server reads JSON-RPC on stdin, writes on stdout;
@@ -371,7 +371,7 @@
 
 (asset :conjurer-spec
   :type        :domain-vocabulary
-  :description "The Conjurer specification itself — eleven grimoire markdown files
+  :description "The Conjurer specification itself — the grimoire markdown files
                 plus index.edn (machine-readable symbol catalog), quick-reference.md,
                 conjurer.md (philosophy), and template.md (.cnj structure). This is
                 the DATA the server serves. It is referenced by a local path or
@@ -381,9 +381,8 @@
                 and has its recovered output validated."
   :language    :en
   :location    "../conjurer-spec"   ;; relative path or symlink; resolved at runtime
-  :version     "spec catalog 1.3.1"
-  :enforces    ["index.edn is the authoritative symbol catalog and routing layer
-                 (133 symbols across 11 grimoires)"
+  :version     "index.edn 2.1.0"   ;; read live; counts and versions come from the file, not from here
+  :enforces    ["index.edn is the authoritative symbol catalog and routing layer"
                 "Grimoire files live under grimoires/ (e.g. grimoires/web.md,
                  grimoires/exhume.md)"
                 "The server treats the spec as read-only; it never mutates it"]
@@ -476,13 +475,13 @@
 ;; validate_symbol_usage, check_references, lint_conventions:
 ;; hoisted 2026-06-09 — see charter :decisions (v2 validation depth).
 
-(f/candidate :search_decisions
+(f/candidate :search-decisions
   :label   "search_decisions"
   :cluster :cluster-d
   :added   "2026-06-09"
   :status  :proposed
   :scores  {:feasibility 9 :elegance 9 :containment 9 :value 9}
-  :history [(f/reassess :of :search_decisions
+  :history [(f/reassess :of :search-decisions
                :date   "2026-06-10"
                :scores {:feasibility 5 :elegance 9 :containment 9 :value 9}
                :rationale "Workspace-snapshot layer is now stable — the original deferral
@@ -502,7 +501,7 @@
               rather than the symbol layer. Deferred: cross-file search depends
               on a stable workspace-snapshot layer not yet formalised.")
 
-(f/candidate :lint_disk_consistency
+(f/candidate :lint-disk-consistency
   :label   "lint_disk_consistency"
   :cluster :cluster-c
   :added   "2026-06-09"
@@ -514,7 +513,7 @@
               existing validation. Deferral resolved: workspace-state.ts is in
               production and stable; the I/O walk pattern is established.")
 
-(f/candidate :lens_stale_decisions
+(f/candidate :lens-stale-decisions
   :label   "lens_stale_decisions"
   :cluster :cluster-d
   :added   "2026-06-09"
@@ -532,7 +531,7 @@
               honesty philosophy. Deferred: needs the decision-graph model to be
               in place before reference resolution is meaningful.")
 
-(f/candidate :materialise_plan
+(f/candidate :materialise-plan
   :label   "materialise_plan"
   :cluster :cluster-d
   :added   "2026-06-09"
@@ -547,7 +546,7 @@
               Deferred: the preflight resolver must prove stable on real projects
               before layering a plan emitter on top of it."
   :history [
-    (f/reassess :of :materialise_plan
+    (f/reassess :of :materialise-plan
       :date "2026-06-10"
       :scores {:feasibility 8 :containment 8}
       :rationale "preflight resolver is battle-tested on this project: materialise_preflight,
@@ -560,7 +559,7 @@
                   implementation gate: agreeing on the output shape before coding the formatter."
       :status :planned)])
 
-(f/candidate :lint_target_health
+(f/candidate :lint-target-health
   :label   "lint_target_health"
   :cluster :cluster-d
   :added   "2026-06-09"
@@ -572,7 +571,27 @@
               deterministic tool. Deferred: lint_disk_consistency covers the
               simpler case first; this extends it with TSF++ ceiling awareness.")
 
-(f/candidate :cnj_resources
+(f/candidate :asset-version-drift
+  :label   "asset version drift in lint_disk_consistency"
+  :cluster :cluster-c
+  :added   "2026-10-14"
+  :status  :proposed
+  :scores  {:feasibility 6 :elegance 6 :containment 8 :value 7}
+  :conditions ["Decide how an asset names the source of its real version before writing
+                code: e.g. :package \"@tsfpp/standard\" (read from the workspace's installed
+                package.json), the SDK constant for :mcp-protocol, and index.edn :version for
+                :conjurer-spec. Free-text :version alone cannot be compared."
+               "Decide what counts as drift for a range: is :version \"^5.0.1\" stale when
+                5.2.0 is installed, or only when the declared range no longer matches?"]
+  :rationale "On 2026-10-14 all three asset :version values in this file were found stale
+              by hand (@tsfpp/standard ^1.3.0 vs ^5.0.1, MCP protocol 2025-06-18 vs
+              2025-11-25, spec catalog 1.3.1 vs index.edn 2.1.0) and nothing had flagged
+              them. lint_disk_consistency already compares declarations against the disk,
+              so it is the natural home. Deferred: the three assets take their versions
+              from three different places, so the comparison needs a declared source per
+              asset first.")
+
+(f/candidate :cnj-resources
   :label   ".cnj MCP resources"
   :cluster :cluster-resources
   :added   "2026-06-09"
@@ -593,13 +612,13 @@
               not blocking any current IDE workflow; cosmetic until we add
               change-notification support.")
 
-(f/candidate :snapshot_workspace
+(f/candidate :snapshot-workspace
   :label   "snapshot_workspace"
   :cluster :cluster-d
   :added   "2026-06-09"
   :status  :proposed
   :scores  {:feasibility 8 :elegance 7 :containment 8 :value 7}
-  :history [(f/reassess :of :snapshot_workspace
+  :history [(f/reassess :of :snapshot-workspace
                :date      "2026-10-14"
                :scores    {:elegance 6 :value 4}
                :rationale "Since this was proposed, its claimed uses have been absorbed by built
@@ -626,7 +645,7 @@
               agents. Deferred: the workspace-state module works but the snapshot
               format is not yet stable enough to commit to as a public shape.")
 
-(f/candidate :trace_decision_chain
+(f/candidate :trace-decision-chain
   :label   "trace_decision_chain"
   :cluster :cluster-d
   :added   "2026-06-09"
@@ -639,7 +658,7 @@
               spec is already a decision graph. Deferred: requires building the
               DAG model over the charter; non-trivial but the payoff is high.")
 
-(f/candidate :watch_workspace
+(f/candidate :watch-workspace
   :label   "watch_workspace"
   :cluster :cluster-resources
   :added   "2026-06-09"
@@ -653,7 +672,7 @@
 
 ;; list_candidates: hoisted 2026-06-10 — see charter decision and mcp-server.cnj spell.
 
-(f/hoist :of :list_candidates
+(f/hoist :of :list-candidates
   :date     "2026-06-10"
   :into     :decision/list-candidates-2026-06-10
   :outcomes [:cnj-model-gains-candidates :new-foresight-module :tool-registered]
@@ -679,7 +698,7 @@
 
 ;; ── lint_disk_consistency: hoisted 2026-06-10 — see mcp-server.cnj spell.
 
-(f/hoist :of :lint_disk_consistency
+(f/hoist :of :lint-disk-consistency
   :date     "2026-06-10"
   :into     :decision/lint-disk-consistency-2026-06-10
   :outcomes [:cluster-c-extended :lint-disk-consistency-registered :suffix-match-module-discovery]
@@ -700,9 +719,9 @@
              recorded on 2026-10-13, when lens_foresight_health reported the
              candidate as still :planned.")
 
-(f/hoist :of :materialise_plan
+(f/hoist :of :materialise-plan
   :date     "2026-06-12"
-  :into     :decision/materialise_plan-2026-06-12
+  :into     :decision/materialise-plan-2026-06-12
   :outcomes [:materialise-plan-tool-registered :task-list-output :project-tools-extended]
   :note     "Condition met: output schema decided ({tasks: [{order, target, file, depends_on,
              reason, modules, produces}]}). Preflight resolver confirmed stable.
@@ -710,7 +729,7 @@
 
 ;; ── Foresight-layer tool candidates (added 2026-06-10) ───────────────
 
-(f/candidate :list_candidates
+(f/candidate :list-candidates
   :label   "list_candidates — expose f/candidate backlog as a queryable tool"
   :cluster :cluster-foresight
   :added   "2026-06-10"

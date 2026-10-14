@@ -7,7 +7,7 @@
 (charter "Conjurer VS Code Extension"
   :version  "0.1.0"
   :created  "2026-06-05"
-  :updated  "2026-06-06"
+  :updated  "2026-10-14"
   :domain   "A VS Code extension giving .cnj and Conjurer authors inline,
              editor-native access to the spec — CodeLens actions, hover docs, and
              commands — built on the same @conjurer/core as the MCP server."
