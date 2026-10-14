@@ -32,9 +32,6 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(supports-color@7.2.0)(zod@4.4.3)
-      '@tsfpp/boundary':
-        specifier: ^2.1.0
-        version: 2.1.0
       '@tsfpp/prelude':
         specifier: ^2.5.0
         version: 2.5.0
@@ -45,6 +42,9 @@ importers:
       '@tsfpp/agents':
         specifier: ^2.6.0
         version: 2.6.0(@tsfpp/boundary@2.1.0)(@tsfpp/eslint-config@2.1.0(@typescript-eslint/eslint-plugin@8.71.2(@typescript-eslint/parser@8.71.2(eslint@10.12.0(supports-color@7.2.0))(supports-color@7.2.0)(typescript@5.9.3))(eslint@10.12.0(supports-color@7.2.0))(supports-color@7.2.0)(typescript@5.9.3))(@typescript-eslint/parser@8.71.2(eslint@10.12.0(supports-color@7.2.0))(supports-color@7.2.0)(typescript@5.9.3))(eslint-plugin-functional@9.0.5(eslint@10.12.0(supports-color@7.2.0))(supports-color@7.2.0)(typescript@5.9.3))(eslint@10.12.0(supports-color@7.2.0))(typescript@5.9.3))(@tsfpp/mcp-server@1.0.4(supports-color@7.2.0))(@tsfpp/prelude@2.5.0)(@tsfpp/standard@5.0.1)(@tsfpp/tsconfig@1.0.0(typescript@5.9.3))
+      '@tsfpp/boundary':
+        specifier: ^2.1.0
+        version: 2.1.0
       '@tsfpp/eslint-config':
         specifier: ^2.1.0
         version: 2.1.0(@typescript-eslint/eslint-plugin@8.71.2(@typescript-eslint/parser@8.71.2(eslint@10.12.0(supports-color@7.2.0))(supports-color@7.2.0)(typescript@5.9.3))(eslint@10.12.0(supports-color@7.2.0))(supports-color@7.2.0)(typescript@5.9.3))(@typescript-eslint/parser@8.71.2(eslint@10.12.0(supports-color@7.2.0))(supports-color@7.2.0)(typescript@5.9.3))(eslint-plugin-functional@9.0.5(eslint@10.12.0(supports-color@7.2.0))(supports-color@7.2.0)(typescript@5.9.3))(eslint@10.12.0(supports-color@7.2.0))(typescript@5.9.3)
