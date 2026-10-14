@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/SrEnforcer/conjurer-mcp/compare/v0.1.1...v0.1.2) (2026-10-14)
+
+
+### Bug Fixes
+
+* close gaps the TSF++ 5 rules opened beyond lint ([f2c3c35](https://github.com/SrEnforcer/conjurer-mcp/commit/f2c3c35691d0493874533366436851fd0ded55f9))
+
 ## [0.1.1](https://github.com/SrEnforcer/conjurer-mcp/compare/v0.1.0...v0.1.1) (2026-10-13)
 
 
