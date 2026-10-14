@@ -7,7 +7,7 @@ import type { Result } from '@tsfpp/prelude';
 import { readGrimoire, readSection, describeGrimoireError } from '../spec-reader.js';
 import { buildIndex, describeIndexError } from '../symbol-index.js';
 import { toCnjModel, describeCnjModelError } from '../cnj-model.js';
-import { buildWorkspaceSnapshot, describeWorkspaceError, describeCnjFileError } from '../workspace-state.js';
+import { buildWorkspaceSnapshot, describeWorkspaceError, describeCnjFileError, describeCnjFileReason } from '../workspace-state.js';
 import { runMaterialisePreflight, describePreflightError } from '../preflight-resolver.js';
 
 // Each error channel is a kind-tagged union (TSF++ Rule 6.7). These tests pin the tag a
@@ -84,6 +84,16 @@ describe('CnjFileError', () => {
   });
 });
 
+describe('describeCnjFileReason', () => {
+  it('renders each variant without the path, a parse error with its location', () => {
+    const cause = { kind: 'ParseError', message: 'Expected rparen', line: 3, column: 12 } as const;
+    expect(describeCnjFileReason({ kind: 'file_not_found', path: 'a.cnj' })).toBe('File not found');
+    expect(describeCnjFileReason({ kind: 'file_unparseable', path: 'a.cnj', cause })).toBe('Parse error at 3:12: Expected rparen');
+    expect(describeCnjFileReason({ kind: 'file_unmodelable', path: 'a.cnj', cause: { kind: 'empty_document', sourceFile: 'a.cnj' } }))
+      .toBe('Model error: Empty .cnj file');
+  });
+});
+
 describe('WorkspaceError', () => {
   it('tags a missing entry file', () => {
     const e = errorOf(buildWorkspaceSnapshot(join(dir, 'nope.cnj')));
@@ -93,8 +103,10 @@ describe('WorkspaceError', () => {
 
   it('tags an entry file that does not parse', () => {
     const e = errorOf(buildWorkspaceSnapshot(join(dir, 'broken.cnj')));
-    expect(e).toEqual({ kind: 'entry_unparseable', path: join(dir, 'broken.cnj') });
-    expect(describeWorkspaceError(e)).toBe(`Could not parse entry file: ${join(dir, 'broken.cnj')}`);
+    const path = join(dir, 'broken.cnj');
+    const cause = { kind: 'ParseError', message: 'Expected rparen', line: 1, column: 13 };
+    expect(e).toEqual({ kind: 'entry_unparseable', path, cause: { kind: 'file_unparseable', path, cause } });
+    expect(describeWorkspaceError(e)).toBe(`Could not parse entry file: ${path} (Parse error at 1:13: Expected rparen)`);
   });
 });
 

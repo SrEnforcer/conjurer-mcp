@@ -14,10 +14,22 @@ export const formatPreflightReport = (report: MaterialisePreflightReport): strin
     `Unresolved refs: ${report.unresolvedRefs.length}`,
     ...report.unresolvedRefs.map((u) => `  ✗ ${u.from} → ${u.target}: ${u.reason}`),
     '',
+    `Unreadable files: ${report.unreadableFiles.length}`,
+    ...report.unreadableFiles.map((u) => `  ✗ ${u.path}: ${u.reason}`),
+    '',
     `Missing paths: ${report.missingPaths.length}`,
     ...report.missingPaths.map((m) => `  ! ${m.path}: ${m.reason}`),
   ];
   return lines.join('\n');
+};
+
+/** The warning shown when a preflight is not ready, naming each kind of blocker it found. */
+export const notReadyMessage = (report: MaterialisePreflightReport): string => {
+  const blockers = [
+    report.unreadableFiles.length > 0 ? `${report.unreadableFiles.length} unreadable file(s)` : '',
+    report.unresolvedRefs.length > 0 ? `${report.unresolvedRefs.length} unresolved reference(s)` : '',
+  ].filter((b) => b.length > 0);
+  return `Preflight found ${blockers.join(' and ')}. See Output panel.`;
 };
 
 const showPreflightResult = (
@@ -30,9 +42,7 @@ const showPreflightResult = (
   channel.appendLine(formatPreflightReport(report));
   channel.show(true);
   if (!report.ready) {
-    void vscode.window.showWarningMessage(
-      `Preflight found ${report.unresolvedRefs.length} unresolved reference(s). See Output panel.`,
-    );
+    void vscode.window.showWarningMessage(notReadyMessage(report));
     return;
   }
   void vscode.window.showInformationMessage('Preflight passed. Folder is ready for materialisation.');

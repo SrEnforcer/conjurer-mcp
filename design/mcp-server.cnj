@@ -368,8 +368,24 @@
                 A warning, not an error: spells from another file or a practitioner grimoire
                 are not visible from one document. Built on prelude.ts semanticHeads. The
                 parser also reads ratios (1/5) as their quotient and accepts & as a symbol, so
-                the canonical spell signature [entity & {:keys [...]}] parses."}]
-  :open []
+                the canonical spell signature [entity & {:keys [...]}] parses."}
+    {:id       :preflight-reports-unreadable
+     :date     "2026-10-14"
+     :decision "materialise_preflight reports every .cnj input it cannot read, as the
+                :non-readable category the extension's preflight must report. A file that
+                does not exist, does not parse or does not model was skipped silently, so
+                a folder with a broken file could report ready: true over an incomplete
+                plan. The report gains unreadable_files [{path, reason}], where the reason
+                names a parse error's line and column, and ready is false while any input is
+                unreadable. project_lint_topology lists them as errors. missing_paths still
+                does not block: module files do not exist before materialisation. When a
+                workspace entry file does not parse, the workspace error now carries the
+                parse error instead of only naming the file. Referenced files that do not
+                parse are still skipped by the workspace tools; see :open."}]
+  :open [
+    "Workspace tools (lens_*, resolve, materialise_plan, workspace_summary) skip a
+     charter :references file that does not parse, without saying so. Should
+     WorkspaceSnapshot carry the unreadable files and each tool report them?"]
   :decided [
     "conjurer://grimoire/<name> MCP resources: yes (2026-06-09 decision above)."]
   :outputs {
@@ -699,6 +715,7 @@
                          :resolved_refs [{:from :string :to :string :outside_folder :boolean}]
                          :unresolved_refs [{:from :string :target :string :reason :string}]
                          :missing_paths [{:path :string :reason :string}]
+                         :unreadable_files [{:path :string :reason :string}]
                          :ready :boolean}}
   :backed-by   :preflight-resolver
   :determinism :pure
@@ -960,7 +977,7 @@
               discover entry .cnj files, resolve in-folder and external
               references, and report unresolved/non-readable targets as
               structured diagnostics."
-     :exports ["runMaterialisePreflight" "MaterialisePreflightReport"]
+     :exports ["runMaterialisePreflight" "MaterialisePreflightReport" "UnreadableFile"]
      :est-lines 280}
     {:module "workspace-state.ts"
      :responsibility "Pure computational core for the stateful resolve/evaluate
