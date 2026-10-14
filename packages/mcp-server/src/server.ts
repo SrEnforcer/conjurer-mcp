@@ -43,7 +43,7 @@ export const main = async (): Promise<void> => {
   const { reader, index } = buildSpecContext();
   // DEVIATION(1.9): McpServer and StdioServerTransport are SDK adapter boundaries.
   // eslint-disable-next-line no-restricted-syntax
-  const server = new McpServer({ name: 'conjurer-mcp', version: '0.1.3' }); // x-release-please-version
+  const server = new McpServer({ name: 'conjurer-mcp', version: '0.1.4' }); // x-release-please-version
   registerGrimoireResources(server, { index, reader });
   registerRetrievalTools(server, { index, reader });
   registerParseTools(server);

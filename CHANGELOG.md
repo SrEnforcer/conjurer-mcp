@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.4](https://github.com/SrEnforcer/conjurer-mcp/compare/v0.1.3...v0.1.4) (2026-10-14)
+
+
+### Bug Fixes
+
+* **preflight:** report .cnj inputs it cannot read instead of skipping them ([75dff7e](https://github.com/SrEnforcer/conjurer-mcp/commit/75dff7e7cb90364636b6d303bdcd251d73c3f873))
+* **preflight:** report .cnj inputs it cannot read instead of skipping them ([fb8c054](https://github.com/SrEnforcer/conjurer-mcp/commit/fb8c054329fe969b677fdee65830edec40dfa989))
+
 ## [0.1.3](https://github.com/SrEnforcer/conjurer-mcp/compare/v0.1.2...v0.1.3) (2026-10-14)
 
 
