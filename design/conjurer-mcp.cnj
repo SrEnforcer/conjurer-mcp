@@ -599,6 +599,21 @@
   :added   "2026-06-09"
   :status  :proposed
   :scores  {:feasibility 8 :elegance 7 :containment 8 :value 7}
+  :history [(f/reassess :of :snapshot_workspace
+               :date      "2026-10-14"
+               :scores    {:elegance 6 :value 4}
+               :rationale "Since this was proposed, its claimed uses have been absorbed by built
+                           tools: diff_cnj and diff_candidates cover diffing state over time (git
+                           supplies the baseline), and workspace_summary, lens_dependency_graph,
+                           lens_open_questions and parse_cnj cover agent bootstrapping with targeted
+                           slices. A full-workspace dump also runs against the token-economy
+                           decision (2026-06-06): return the smallest useful slice. No primary
+                           consumer has emerged in four months, so neither condition is reachable.
+                           Verdict: abandon. Revive only if a named external consumer (CI script,
+                           dashboard, other MCP client, or the VS Code extension) needs a stable
+                           cross-file shape that the existing tools cannot compose, with that
+                           consumer's fields driving the schema."
+               :status    :abandoned)]
   :conditions ["Draft the output schema (even informally) and mark which fields are
                 guaranteed stable — this is the stated missing piece; implement only
                 after the stability contract is written down."
