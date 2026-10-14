@@ -6,6 +6,7 @@ import { parse } from './edn-parser.js';
 import { toCnjModel } from './cnj-model.js';
 import type { CnjDocument, CnjTarget, CnjModelError } from './cnj-model.js';
 import { bindingNames } from './references.js';
+import { describeCnjFileReason } from './workspace-state.js';
 import type { CnjFileError } from './workspace-state.js';
 
 export type ResolvedRef = {
@@ -25,12 +26,19 @@ export type MissingPath = {
   readonly reason: string;
 };
 
+/** A `.cnj` input the preflight could not read, so its targets and references are unknown. */
+export type UnreadableFile = {
+  readonly path: string;
+  readonly reason: string;
+};
+
 export type MaterialisePreflightReport = {
   readonly projectName: string;
   readonly packageJsonRequired: boolean;
   readonly resolvedRefs: ReadonlyArray<ResolvedRef>;
   readonly unresolvedRefs: ReadonlyArray<UnresolvedRef>;
   readonly missingPaths: ReadonlyArray<MissingPath>;
+  readonly unreadableFiles: ReadonlyArray<UnreadableFile>;
   readonly ready: boolean;
 };
 
@@ -67,11 +75,19 @@ const findCnjFiles = (folder: string): ReadonlyArray<string> => {
     .map((f) => join(folder, f));
 };
 
-const parseDocs = (files: ReadonlyArray<string>): ReadonlyArray<CnjDocument> =>
-  files.flatMap((f) => {
-    const r = parseCnjFile(f);
-    return isErr(r) ? [] : [r.value];
-  });
+type ParsedInputs = {
+  readonly docs: ReadonlyArray<CnjDocument>;
+  readonly unreadable: ReadonlyArray<UnreadableFile>;
+};
+
+const parseDocs = (files: ReadonlyArray<string>): ParsedInputs => {
+  const results = files.map((path) => ({ path, result: parseCnjFile(path) }));
+  return {
+    docs: results.flatMap(({ result }) => (isErr(result) ? [] : [result.value])),
+    unreadable: results.flatMap(({ path, result }) =>
+      isErr(result) ? [{ path, reason: describeCnjFileReason(result.error) }] : []),
+  };
+};
 
 // A target's :from may name another target or any binding (core.md · target): def forms,
 // :manifest bindings and target names, written as symbol or keyword.
@@ -129,7 +145,9 @@ export const runMaterialisePreflight = (
     ? entryFiles
     : findCnjFiles(folder);
   if (files.length === 0) return err({ kind: 'no_cnj_files', folder });
-  const docs = parseDocs(files);
+  // An unreadable input is reported, never skipped: its targets and references are unknown,
+  // so the plan is incomplete and the folder is not ready.
+  const { docs, unreadable } = parseDocs(files);
   const known = allKnownNames(docs);
   const deps = collectDeps(docs, known);
   const missing = collectMissingPaths(docs, folder);
@@ -140,6 +158,7 @@ export const runMaterialisePreflight = (
     resolvedRefs: deps.resolved,
     unresolvedRefs: deps.unresolved,
     missingPaths: missing,
-    ready: deps.unresolved.length === 0,
+    unreadableFiles: unreadable,
+    ready: deps.unresolved.length === 0 && unreadable.length === 0,
   });
 };

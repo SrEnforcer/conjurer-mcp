@@ -43,6 +43,7 @@ const virtualFs: VirtualFs = {
     ['/vfs/missing', ['bad.cnj']],
     ['/vfs/empty', []],
     ['/vfs/bindings', ['project.cnj']],
+    ['/vfs/partly', ['anchor.cnj', 'broken.cnj', 'empty.cnj', 'server.cnj']],
     ['/vfs/packages/shared-core/src', []],
   ]),
   files: intoMap([
@@ -51,6 +52,10 @@ const virtualFs: VirtualFs = {
     ['/vfs/multi/server.cnj', serverDoc],
     ['/vfs/missing/bad.cnj', badDepDoc],
     ['/vfs/bindings/project.cnj', bindingDoc],
+    ['/vfs/partly/anchor.cnj', anchorDoc],
+    ['/vfs/partly/broken.cnj', '(target lost :language "TypeScript"'],
+    ['/vfs/partly/empty.cnj', ''],
+    ['/vfs/partly/server.cnj', serverDoc],
   ]),
 };
 
@@ -164,5 +169,38 @@ describe('runMaterialisePreflight — :from resolves to targets and bindings (Q-
     if (!isOk(r)) return;
     expect(r.value.unresolvedRefs.map((u) => u.target)).toEqual(['does-not-exist']);
     expect(r.value.unresolvedRefs[0]?.reason).toContain('neither a declared target nor a binding');
+  });
+});
+
+describe('runMaterialisePreflight — unreadable inputs', () => {
+  it('reports every input it could not read, with the reason, and is not ready', () => {
+    const r = runMaterialisePreflight('/vfs/partly');
+    if (!isOk(r)) return expect.unreachable('expected a report');
+    expect(r.value.unreadableFiles).toEqual([
+      { path: '/vfs/partly/broken.cnj', reason: 'Parse error at 1:36: Expected rparen' },
+      { path: '/vfs/partly/empty.cnj', reason: 'Model error: Empty .cnj file' },
+    ]);
+    expect(r.value.ready).toBe(false);
+  });
+
+  it('still resolves what the readable inputs declare', () => {
+    const r = runMaterialisePreflight('/vfs/partly');
+    if (!isOk(r)) return expect.unreachable('expected a report');
+    expect(r.value.unresolvedRefs).toEqual([]);
+    expect(r.value.resolvedRefs.map((ref) => ref.to)).toContain('shared-core');
+  });
+
+  it('reports an explicit entry file that does not exist', () => {
+    const r = runMaterialisePreflight('/vfs/multi', undefined, ['/vfs/multi/anchor.cnj', '/vfs/multi/ghost.cnj']);
+    if (!isOk(r)) return expect.unreachable('expected a report');
+    expect(r.value.unreadableFiles).toEqual([{ path: '/vfs/multi/ghost.cnj', reason: 'File not found' }]);
+    expect(r.value.ready).toBe(false);
+  });
+
+  it('reports no unreadable inputs and stays ready when every input reads', () => {
+    const r = runMaterialisePreflight('/vfs/multi');
+    if (!isOk(r)) return expect.unreachable('expected a report');
+    expect(r.value.unreadableFiles).toEqual([]);
+    expect(r.value.ready).toBe(true);
   });
 });

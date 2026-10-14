@@ -52,10 +52,26 @@ export const describeCnjFileError = (e: CnjFileError): string => {
   }
 };
 
+/**
+ * Render why a file could not be read, without its path, for reports that carry the path
+ * in a field of their own. A parse error names its line and column.
+ *
+ * @param e - The error.
+ * @returns A one-line reason.
+ */
+export const describeCnjFileReason = (e: CnjFileError): string => {
+  switch (e.kind) {
+    case 'file_not_found': return 'File not found';
+    case 'file_unparseable': return `Parse error at ${e.cause.line}:${e.cause.column}: ${e.cause.message}`;
+    case 'file_unmodelable': return `Model error: ${describeCnjModelError(e.cause)}`;
+    default: return absurd(e);
+  }
+};
+
 /** Why a workspace snapshot could not be built from its entry file. */
 export type WorkspaceError =
   | { readonly kind: 'entry_not_found'; readonly path: string }
-  | { readonly kind: 'entry_unparseable'; readonly path: string };
+  | { readonly kind: 'entry_unparseable'; readonly path: string; readonly cause: CnjFileError };
 
 /**
  * Render a workspace error as the text tools report.
@@ -66,7 +82,7 @@ export type WorkspaceError =
 export const describeWorkspaceError = (e: WorkspaceError): string => {
   switch (e.kind) {
     case 'entry_not_found': return `Entry file not found: ${e.path}`;
-    case 'entry_unparseable': return `Could not parse entry file: ${e.path}`;
+    case 'entry_unparseable': return `Could not parse entry file: ${e.path} (${describeCnjFileReason(e.cause)})`;
     default: return absurd(e);
   }
 };
@@ -100,9 +116,6 @@ const discoverStep = (d: Discovery): ReadonlyMap<string, ParsedFileEntry> => {
   const visited = intoMap([...d.visited.entries(), [next, entry.value] as const]);
   return discoverStep({ visited, queue: [...rest, ...entry.value.directRefs.filter((ref) => !visited.has(ref))] });
 };
-
-const discoverFiles = (entryFile: string): ReadonlyMap<string, ParsedFileEntry> =>
-  discoverStep({ visited: intoMap([]), queue: [resolve(entryFile)] });
 
 // A later target with the same name replaces an earlier one, as Map construction does.
 const buildTargetEdges = (
@@ -176,8 +189,10 @@ export const computeContextKey = (
 
 export const buildWorkspaceSnapshot = (entryFile: string): Result<WorkspaceSnapshot, WorkspaceError> => {
   if (!existsSync(entryFile)) return err({ kind: 'entry_not_found', path: entryFile });
-  const files = discoverFiles(entryFile);
-  if (files.size === 0) return err({ kind: 'entry_unparseable', path: entryFile });
+  const entryPath = resolve(entryFile);
+  const entry = parseEntry(entryPath);
+  if (isErr(entry)) return err({ kind: 'entry_unparseable', path: entryFile, cause: entry.error });
+  const files = discoverStep({ visited: intoMap([[entryPath, entry.value]]), queue: entry.value.directRefs });
   const declaredFroms = buildTargetEdges(files);
   const targetNames = Array.from(declaredFroms.keys());
   const bindings = Array.from(files.values()).flatMap((entry) => bindingNames(entry.doc));

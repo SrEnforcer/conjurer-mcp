@@ -195,9 +195,12 @@ const handleLintTopology = (workspace: string | undefined = undefined): ToolCont
       null, 2,
     ));
   }
-  const issues = r.value.unresolvedRefs.map((u) => ({
-    severity: 'error', file: u.from, message: `Unresolved: ${u.target} — ${u.reason}`,
-  }));
+  const issues = [
+    ...r.value.unreadableFiles.map((u) => ({ severity: 'error', file: u.path, message: `Unreadable: ${u.reason}` })),
+    ...r.value.unresolvedRefs.map((u) => ({
+      severity: 'error', file: u.from, message: `Unresolved: ${u.target} — ${u.reason}`,
+    })),
+  ];
   return toContent(JSON.stringify({ issues, summary: { ready: r.value.ready } }, null, 2));
 };
 
@@ -222,6 +225,7 @@ export const handlePreflight = (
     resolved_refs: r.value.resolvedRefs,
     unresolved_refs: r.value.unresolvedRefs,
     missing_paths: r.value.missingPaths,
+    unreadable_files: r.value.unreadableFiles,
     ready: r.value.ready,
   }, null, 2));
 };

@@ -15,6 +15,7 @@ const PreflightSchema = z.looseObject({
   project_name: z.string(),
   ready: z.boolean(),
   unresolved_refs: z.array(z.unknown()),
+  unreadable_files: z.array(z.looseObject({ path: z.string(), reason: z.string() })),
 });
 const DependencyGraphSchema = z.looseObject({
   nodes: z.array(z.looseObject({ name: z.string() })),
@@ -55,6 +56,8 @@ const LEAF_CNJ = [
 const virtualFiles: Readonly<Record<string, string>> = {
   '/vfs/resolve/proj.cnj': VALID,
   '/vfs/pkg/proj.cnj': VALID,
+  '/vfs/partly/proj.cnj': VALID,
+  '/vfs/partly/broken.cnj': BAD_EDN,
   '/vfs/graph/leaf.cnj': LEAF_CNJ,
   '/vfs/graph/core.cnj': CORE_CNJ,
 };
@@ -62,6 +65,7 @@ const virtualFiles: Readonly<Record<string, string>> = {
 const virtualDirs: Readonly<Record<string, ReadonlyArray<string>>> = {
   '/vfs/resolve': ['proj.cnj'],
   '/vfs/pkg': ['proj.cnj'],
+  '/vfs/partly': ['proj.cnj', 'broken.cnj'],
   '/vfs/empty': [],
   '/vfs/graph': ['leaf.cnj', 'core.cnj'],
 };
@@ -113,6 +117,18 @@ describe('handlePreflight', () => {
     expect(d.project_name).toBe('my-project');
     expect(d.ready).toBe(true);
     expect(d.unresolved_refs).toHaveLength(0);
+  });
+
+  it('reports an unreadable .cnj with its reason and is not ready', () => {
+    const d = parseToolJson(handlePreflight('/vfs/partly'), PreflightSchema);
+    expect(d.unreadable_files.map((u) => u.path)).toEqual(['/vfs/partly/broken.cnj']);
+    expect(d.unreadable_files[0]?.reason).toMatch(/^Parse error at 1:\d+: /);
+    expect(d.ready).toBe(false);
+  });
+
+  it('reports no unreadable files for a folder that reads cleanly', () => {
+    const d = parseToolJson(handlePreflight('/vfs/pkg'), PreflightSchema);
+    expect(d.unreadable_files).toEqual([]);
   });
 
   it('defaults project name to conjurer-mcp', () => {
