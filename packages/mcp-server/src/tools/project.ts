@@ -1,7 +1,6 @@
 /**
  * Project-oriented MCP tools for dependency planning and workspace topology.
  */
-/* eslint-disable no-restricted-syntax -- DEVIATION(1.9): graph traversal and adapter cache require constructor-based collections at module boundary. */
 /* eslint-disable functional/no-loop-statements -- DEVIATION(4.2): dependency-graph traversals require explicit loops for deterministic bounded scans. */
 /* eslint-disable functional/immutable-data -- DEVIATION(2.3): local mutation is confined to ephemeral accumulators during graph assembly. */
 /* eslint-disable max-lines-per-function -- DEVIATION(3.4): tool handlers mirror MCP contract branches; decomposition deferred to dedicated refactor slice. */
@@ -10,7 +9,10 @@ import { resolve as resolvePath } from 'node:path';
 import { readFileSync, existsSync } from 'node:fs';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { parse, toCnjModel, runMaterialisePreflight, buildWorkspaceSnapshot, topoOrder, computeContextKey } from '@conjurer/core';
+import {
+  parse, toCnjModel, runMaterialisePreflight, buildWorkspaceSnapshot, topoOrder, computeContextKey,
+  describeCnjModelError, describePreflightError, describeWorkspaceError,
+} from '@conjurer/core';
 import type { EdnNode } from '@conjurer/core';
 import { isErr, fromNullable, getOrElseOption, isSome } from '@tsfpp/prelude';
 
@@ -21,7 +23,11 @@ const toContent = (text: string): ToolContent => [{ type: 'text', text }];
 // DEVIATION(2.4): Process-local evaluate cache — in-memory for the stdio session lifetime.
 // Session-local only; not shared across concurrent server instances.
 // DEVIATION(2.2): Adapter cache uses mutable Map for session-lifetime updates.
-const evaluateCache = new Map<string, { readonly cacheKey: string; readonly evaluatedAt: number }>();
+// eslint-disable-next-line no-restricted-syntax -- DEVIATION(1.9): Map/Set has no constructor-free equivalent.
+const evaluateCache = new Map<string, string>();
+
+/** Cache key reported when evaluate has neither a file nor a resolve id; fixed so the tool stays pure. */
+const UNSCOPED_CACHE_KEY = 'eval-unscoped';
 
 const ARTIFACT_NOTE = 'artifact field is intentionally empty — generation belongs to the IDE agent, not this server';
 
@@ -40,7 +46,7 @@ const inlineResolvePlan = (content: string): ToolContent => {
   const parsed = parse(content);
   if (isErr(parsed)) return toContent(`Parse error: ${parsed.error.message}`);
   const doc = toCnjModel(parsed.value, '<inline>');
-  if (isErr(doc)) return toContent(`Model error: ${doc.error}`);
+  if (isErr(doc)) return toContent(`Model error: ${describeCnjModelError(doc.error)}`);
   const plan = doc.value.targets.map((t, i) => ({
     form: 'target', file: '<inline>', name: t.name, order: i,
     reason: 'context-injection',
@@ -69,7 +75,7 @@ export const handleResolve = (
 
   const abs = resolvePath(filePath);
   const snapshotRes = buildWorkspaceSnapshot(abs);
-  if (isErr(snapshotRes)) return toContent(`Workspace error: ${snapshotRes.error}`);
+  if (isErr(snapshotRes)) return toContent(`Workspace error: ${describeWorkspaceError(snapshotRes.error)}`);
   const snapshot = snapshotRes.value;
 
   const entry = snapshot.files.get(abs);
@@ -79,6 +85,7 @@ export const handleResolve = (
 
   const allFiles = Array.from(snapshot.files.values());
   // DEVIATION(2.2): Mutable map construction for SDK-adapter graph indexing.
+  // eslint-disable-next-line no-restricted-syntax -- DEVIATION(1.9): Map/Set has no constructor-free equivalent.
   const targetFileMap = new Map<string, string>();
   // DEVIATION(4.2): Graph materialisation loop over snapshot targets.
   for (const f of allFiles) {
@@ -86,6 +93,7 @@ export const handleResolve = (
     for (const t of f.doc.targets) targetFileMap.set(t.name, f.path);
   }
 
+  // eslint-disable-next-line no-restricted-syntax -- DEVIATION(1.9): Map/Set has no constructor-free equivalent.
   const entryTargetNames = new Set(entry.doc.targets.map((t) => t.name));
 
   const plan = order
@@ -138,20 +146,20 @@ export const handleEvaluate = (
   mode: string | undefined = undefined,
 ): ToolContent => {
   if (filePath === undefined) {
-    const cacheKey = getOrElseOption(() => `eval-${Date.now()}`)(fromNullable(resolveId));
+    const cacheKey = getOrElseOption(() => UNSCOPED_CACHE_KEY)(fromNullable(resolveId));
     return toContent(JSON.stringify({ cache_hit: false, cache_key: cacheKey, artifact: {}, artifact_note: ARTIFACT_NOTE, stale: [] }, null, 2));
   }
 
   const abs = resolvePath(filePath);
   const snapshotRes = buildWorkspaceSnapshot(abs);
-  if (isErr(snapshotRes)) return toContent(`Workspace error: ${snapshotRes.error}`);
+  if (isErr(snapshotRes)) return toContent(`Workspace error: ${describeWorkspaceError(snapshotRes.error)}`);
   const snapshot = snapshotRes.value;
 
   const allFilePaths = Array.from(snapshot.files.keys());
   const cacheKey = computeContextKey(snapshot, allFilePaths);
   const prior = evaluateCache.get(abs);
 
-  if (prior !== undefined && prior.cacheKey === cacheKey) {
+  if (prior === cacheKey) {
     return toContent(JSON.stringify({
       cache_hit: true,
       cache_key: cacheKey,
@@ -166,7 +174,7 @@ export const handleEvaluate = (
     ? [{ form_name: filePath, reason: 'workspace context changed since last evaluate' }]
     : [];
 
-  evaluateCache.set(abs, { cacheKey, evaluatedAt: Date.now() });
+  evaluateCache.set(abs, cacheKey);
 
   return toContent(JSON.stringify({
     cache_hit: false,
@@ -183,7 +191,7 @@ const handleLintTopology = (workspace: string | undefined = undefined): ToolCont
   const r = runMaterialisePreflight(root);
   if (isErr(r)) {
     return toContent(JSON.stringify(
-      { issues: [{ severity: 'warning', file: root, message: r.error }], summary: { ready: false } },
+      { issues: [{ severity: 'warning', file: root, message: describePreflightError(r.error) }], summary: { ready: false } },
       null, 2,
     ));
   }
@@ -207,7 +215,7 @@ export const handlePreflight = (
   entryFiles: ReadonlyArray<string> | undefined = undefined,
 ): ToolContent => {
   const r = runMaterialisePreflight(folder, projectName, entryFiles);
-  if (isErr(r)) return toContent(r.error);
+  if (isErr(r)) return toContent(describePreflightError(r.error));
   return toContent(JSON.stringify({
     project_name: r.value.projectName,
     package_json_required: r.value.packageJsonRequired,
@@ -239,12 +247,13 @@ const getModuleEntries = (modules: ReadonlyArray<ReadonlyMap<string, EdnNode>>):
 export const handleMaterialisePlan = (filePath: string): ToolContent => {
   const abs = resolvePath(filePath);
   const snapshotRes = buildWorkspaceSnapshot(abs);
-  if (isErr(snapshotRes)) return toContent(`Workspace error: ${snapshotRes.error}`);
+  if (isErr(snapshotRes)) return toContent(`Workspace error: ${describeWorkspaceError(snapshotRes.error)}`);
   const snapshot = snapshotRes.value;
 
   const order = topoOrder(snapshot, abs);
 
   // DEVIATION(2.2): mutable map construction for target-to-file lookup.
+  // eslint-disable-next-line no-restricted-syntax -- DEVIATION(1.9): Map/Set has no constructor-free equivalent.
   const targetFileMap = new Map<string, string>();
   // DEVIATION(4.2): loop over snapshot to build index.
   for (const f of snapshot.files.values()) {

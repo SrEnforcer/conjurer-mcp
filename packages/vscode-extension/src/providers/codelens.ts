@@ -244,7 +244,7 @@ const documentCodeLenses = (
   ];
 };
 
-export const createCodeLensProvider = (index: SymbolIndex): ConjurerCodeLensProvider => ({
+export const mkCodeLensProvider = (index: SymbolIndex): ConjurerCodeLensProvider => ({
   // DEVIATION(1.9): vscode.CodeLensProvider.provideCodeLenses must return a mutable CodeLens[].
   // eslint-disable-next-line functional/prefer-readonly-type
   provideCodeLenses: (document: vscode.TextDocument, _token: vscode.CancellationToken): vscode.CodeLens[] =>

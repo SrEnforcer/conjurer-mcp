@@ -1,7 +1,7 @@
 /* eslint-disable functional/prefer-readonly-type -- DEVIATION(2.2): test fixture construction uses mutable shapes for clarity. */
 import { describe, it, expect } from 'vitest';
 import { computeHealthIssues } from '../providers/status-bar.js';
-import { parse, toCnjModel } from '@conjurer/core';
+import { parse, toCnjModel, describeCnjModelError } from '@conjurer/core';
 import type { WorkspaceSnapshot, ParsedFileEntry } from '@conjurer/core';
 import { isErr, intoMap } from '@tsfpp/prelude';
 
@@ -10,7 +10,7 @@ const makeEntry = (src: string, filePath = '/test/test.cnj'): ParsedFileEntry =>
   const parsed = parse(src);
   if (isErr(parsed)) return expect.unreachable(`parse error: ${parsed.error.message}`);
   const doc = toCnjModel(parsed.value, filePath);
-  if (isErr(doc)) return expect.unreachable(`model error: ${doc.error}`);
+  if (isErr(doc)) return expect.unreachable(`model error: ${describeCnjModelError(doc.error)}`);
   return { path: filePath, content: src, doc: doc.value, directRefs: [] };
 };
 

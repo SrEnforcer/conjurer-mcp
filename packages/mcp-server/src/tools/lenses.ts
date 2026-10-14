@@ -1,13 +1,12 @@
 /**
  * Lens tools for workspace-level cross-file analysis.
  */
-/* eslint-disable no-restricted-syntax -- DEVIATION(1.9): graph traversal requires constructor-based collections at module boundary. */
 /* eslint-disable functional/no-loop-statements -- DEVIATION(4.2): dependency-graph traversals require explicit loops for deterministic bounded scans. */
 /* eslint-disable functional/immutable-data -- DEVIATION(2.3): local mutation is confined to ephemeral accumulators during graph assembly. */
 import { resolve as resolvePath } from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { buildWorkspaceSnapshot, topoOrder, validateCnj } from '@conjurer/core';
+import { buildWorkspaceSnapshot, describeWorkspaceError, topoOrder, validateCnj } from '@conjurer/core';
 import { isErr, fromNullable, getOrElseOption, intoMap } from '@tsfpp/prelude';
 import type { WorkspaceSnapshot } from '@conjurer/core';
 
@@ -34,6 +33,7 @@ const reachableFrom = (
   edges: ReadonlyMap<string, ReadonlyArray<string>>,
 ): ReadonlyArray<string> => {
   // DEVIATION(4.2): BFS traversal loop for dependency graph reachability.
+  // eslint-disable-next-line no-restricted-syntax -- DEVIATION(1.9): Map/Set has no constructor-free equivalent.
   const result = new Set<string>([start]);
   const queue = [start];
   // DEVIATION(4.2): Queue-driven traversal loop over workspace graph.
@@ -83,7 +83,7 @@ export const handleLensDependencyGraph = (
 ): ToolContent => {
   const abs = resolvePath(filePath);
   const snapshotRes = buildWorkspaceSnapshot(abs);
-  if (isErr(snapshotRes)) return toContent(`Workspace error: ${snapshotRes.error}`);
+  if (isErr(snapshotRes)) return toContent(`Workspace error: ${describeWorkspaceError(snapshotRes.error)}`);
   const snapshot = snapshotRes.value;
 
   const fileOfTarget = targetFiles(snapshot);
@@ -115,7 +115,7 @@ export const handleLensDependencyGraph = (
 export const handleLensOpenQuestions = (filePath: string): ToolContent => {
   const abs = resolvePath(filePath);
   const snapshotRes = buildWorkspaceSnapshot(abs);
-  if (isErr(snapshotRes)) return toContent(`Workspace error: ${snapshotRes.error}`);
+  if (isErr(snapshotRes)) return toContent(`Workspace error: ${describeWorkspaceError(snapshotRes.error)}`);
   const snapshot = snapshotRes.value;
 
   const filesWithOpen = Array.from(snapshot.files.values())
@@ -145,7 +145,7 @@ export const handleLensOpenQuestions = (filePath: string): ToolContent => {
 export const handleWorkspaceSummary = (filePath: string): ToolContent => {
   const abs = resolvePath(filePath);
   const snapshotRes = buildWorkspaceSnapshot(abs);
-  if (isErr(snapshotRes)) return toContent(`Workspace error: ${snapshotRes.error}`);
+  if (isErr(snapshotRes)) return toContent(`Workspace error: ${describeWorkspaceError(snapshotRes.error)}`);
   const snapshot = snapshotRes.value;
 
   const files = Array.from(snapshot.files.values()).map((entry) => {

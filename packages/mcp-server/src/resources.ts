@@ -4,7 +4,7 @@
 /* eslint-disable functional/prefer-readonly-type -- DEVIATION(2.2): MCP SDK callback contracts require mutable array/object response shapes. */
 import { ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { readGrimoire } from '@conjurer/core';
+import { readGrimoire, describeGrimoireError } from '@conjurer/core';
 import type { SpecReader, SymbolIndex } from '@conjurer/core';
 import { isErr } from '@tsfpp/prelude';
 
@@ -54,7 +54,7 @@ const readGrimoireResource = (
   }
   const result = readGrimoire(ctx.reader, grimName);
   return isErr(result)
-    ? toReadContent(uri, 'text/plain', result.error)
+    ? toReadContent(uri, 'text/plain', describeGrimoireError(result.error))
     : toReadContent(uri, 'text/markdown', result.value);
 };
 

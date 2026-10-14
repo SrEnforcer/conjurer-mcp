@@ -1,4 +1,4 @@
-import { ok, err, intoMap, isSome, fromNullable } from '@tsfpp/prelude';
+import { ok, err, intoMap, isSome, fromNullable, absurd } from '@tsfpp/prelude';
 import type { Result } from '@tsfpp/prelude';
 import type { EdnNode } from './edn-parser.js';
 import { bareName } from './references.js';
@@ -361,11 +361,22 @@ const withLifecycle = (
   return { ...candidate, history, status };
 };
 
+/** Why a parsed `.cnj` could not be shaped into a document. */
+export type CnjModelError = { readonly kind: 'empty_document'; readonly sourceFile: string };
+
+/** Render a model error as the text tools report. */
+export const describeCnjModelError = (e: CnjModelError): string => {
+  switch (e.kind) {
+    case 'empty_document': return 'Empty .cnj file';
+    default: return absurd(e.kind);
+  }
+};
+
 export const toCnjModel = (
   nodes: ReadonlyArray<EdnNode>,
   sourceFile: string,
-): Result<CnjDocument, string> => {
-  if (nodes.length === 0) return err('Empty .cnj file');
+): Result<CnjDocument, CnjModelError> => {
+  if (nodes.length === 0) return err({ kind: 'empty_document', sourceFile });
   const initial: FormAcc = {
     charter: undefined, assets: [], targets: [], domainForms: [], candidates: [], hoists: [], reassessments: [],
   };

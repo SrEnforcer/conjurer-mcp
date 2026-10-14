@@ -1,11 +1,12 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { ok, err, isErr, isSome, fromNullable } from '@tsfpp/prelude';
+import { ok, err, isErr, isSome, fromNullable, absurd, mapErr } from '@tsfpp/prelude';
 import type { Result } from '@tsfpp/prelude';
 import { parse } from './edn-parser.js';
 import { toCnjModel } from './cnj-model.js';
-import type { CnjDocument, CnjTarget } from './cnj-model.js';
+import type { CnjDocument, CnjTarget, CnjModelError } from './cnj-model.js';
 import { bindingNames } from './references.js';
+import type { CnjFileError } from './workspace-state.js';
 
 export type ResolvedRef = {
   readonly from: string;
@@ -33,12 +34,30 @@ export type MaterialisePreflightReport = {
   readonly ready: boolean;
 };
 
-const parseCnjFile = (filePath: string): Result<CnjDocument, string> => {
-  if (!existsSync(filePath)) return err(`File not found: ${filePath}`);
+/** Why a folder could not be preflighted at all. */
+export type PreflightError = { readonly kind: 'no_cnj_files'; readonly folder: string };
+
+/**
+ * Render a preflight error as the text tools report.
+ *
+ * @param e - The error.
+ * @returns A one-line message naming the folder.
+ */
+export const describePreflightError = (e: PreflightError): string => {
+  switch (e.kind) {
+    case 'no_cnj_files': return `No .cnj files found in ${e.folder}`;
+    default: return absurd(e.kind);
+  }
+};
+
+const parseCnjFile = (filePath: string): Result<CnjDocument, CnjFileError> => {
+  if (!existsSync(filePath)) return err({ kind: 'file_not_found', path: filePath });
   const content = readFileSync(filePath, 'utf8');
   const parsed = parse(content);
-  if (isErr(parsed)) return err(`Parse error in ${filePath}: ${parsed.error.message}`);
-  return toCnjModel(parsed.value, filePath);
+  if (isErr(parsed)) return err({ kind: 'file_unparseable', path: filePath, cause: parsed.error });
+  return mapErr<CnjDocument, CnjModelError, CnjFileError>((cause) => ({ kind: 'file_unmodelable', path: filePath, cause }))(
+    toCnjModel(parsed.value, filePath),
+  );
 };
 
 const findCnjFiles = (folder: string): ReadonlyArray<string> => {
@@ -105,11 +124,11 @@ export const runMaterialisePreflight = (
   folder: string,
   projectName?: string,
   entryFiles?: ReadonlyArray<string>,
-): Result<MaterialisePreflightReport, string> => {
+): Result<MaterialisePreflightReport, PreflightError> => {
   const files = entryFiles !== undefined && entryFiles.length > 0
     ? entryFiles
     : findCnjFiles(folder);
-  if (files.length === 0) return err(`No .cnj files found in ${folder}`);
+  if (files.length === 0) return err({ kind: 'no_cnj_files', folder });
   const docs = parseDocs(files);
   const known = allKnownNames(docs);
   const deps = collectDeps(docs, known);

@@ -2,7 +2,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-import { ok, err, none, some, isErr, isSome, fromNullable } from '@tsfpp/prelude';
+import { ok, err, none, some, isSome, fromNullable, absurd, map } from '@tsfpp/prelude';
 import type { Result, Option } from '@tsfpp/prelude';
 
 export type SpecReader = {
@@ -58,9 +58,25 @@ export const resolveSpecPath = (env: SpecEnv): Option<string> => {
   return isSome(sibling) ? sibling : fromInstalledPackage();
 };
 
-export const readGrimoire = (reader: SpecReader, grimoire: string): Result<string, string> => {
+/** Why a grimoire could not be read from the spec. */
+export type GrimoireError = { readonly kind: 'grimoire_not_found'; readonly grimoire: string };
+
+/**
+ * Render a grimoire error as the text tools report.
+ *
+ * @param e - The error.
+ * @returns A one-line message.
+ */
+export const describeGrimoireError = (e: GrimoireError): string => {
+  switch (e.kind) {
+    case 'grimoire_not_found': return `Grimoire not found: ${e.grimoire}`;
+    default: return absurd(e.kind);
+  }
+};
+
+export const readGrimoire = (reader: SpecReader, grimoire: string): Result<string, GrimoireError> => {
   const filePath = resolve(reader.specPath, 'grimoires', `${grimoire}.md`);
-  if (!existsSync(filePath)) return err(`Grimoire not found: ${grimoire}`);
+  if (!existsSync(filePath)) return err({ kind: 'grimoire_not_found', grimoire });
   return ok(readFileSync(filePath, 'utf8'));
 };
 
@@ -72,8 +88,5 @@ const extractSection = (content: string, section: string): string => {
   return nextHeading === -1 ? content.slice(idx) : content.slice(idx, nextHeading);
 };
 
-export const readSection = (reader: SpecReader, grimoire: string, section: string): Result<string, string> => {
-  const contentRes = readGrimoire(reader, grimoire);
-  if (isErr(contentRes)) return err(contentRes.error);
-  return ok(extractSection(contentRes.value, section));
-};
+export const readSection = (reader: SpecReader, grimoire: string, section: string): Result<string, GrimoireError> =>
+  map<string, string, GrimoireError>((content) => extractSection(content, section))(readGrimoire(reader, grimoire));

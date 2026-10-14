@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { isOk, isErr, err, fromNullable, isSome } from '@tsfpp/prelude';
+import { isOk, isErr, err, fromNullable, isSome, mapErr } from '@tsfpp/prelude';
 import type { CnjCandidateForm } from '../cnj-model.js';
 import type { Result } from '@tsfpp/prelude';
 import { parse } from '../edn-parser.js';
-import { toCnjModel } from '../cnj-model.js';
-import type { CnjDocument } from '../cnj-model.js';
+import { toCnjModel, describeCnjModelError } from '../cnj-model.js';
+import type { CnjDocument, CnjModelError } from '../cnj-model.js';
 
 const parseAndModel = (src: string): Result<CnjDocument, string> => {
   const r = parse(src);
   if (!isOk(r)) return err(r.error.message);
-  return toCnjModel(r.value, 'test.cnj');
+  return mapErr<CnjDocument, CnjModelError, string>(describeCnjModelError)(toCnjModel(r.value, 'test.cnj'));
 };
 
 describe('toCnjModel — errors', () => {

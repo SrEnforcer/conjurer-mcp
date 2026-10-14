@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
-import { ok, err, isErr, intoMap } from '@tsfpp/prelude';
+import { ok, err, isErr, intoMap, sortWith, ordString, absurd } from '@tsfpp/prelude';
 import type { Result } from '@tsfpp/prelude';
 import { parse } from './edn-parser.js';
-import { toCnjModel } from './cnj-model.js';
-import type { CnjDocument } from './cnj-model.js';
+import type { ParseError } from './edn-parser.js';
+import { toCnjModel, describeCnjModelError } from './cnj-model.js';
+import type { CnjDocument, CnjModelError } from './cnj-model.js';
 import { bindingNames } from './references.js';
 
 export type ParsedFileEntry = {
@@ -30,13 +31,53 @@ export type WorkspaceSnapshot = {
   readonly cycleDetected: boolean;
 };
 
-const parseEntry = (filePath: string): Result<ParsedFileEntry, string> => {
-  if (!existsSync(filePath)) return err(`File not found: ${filePath}`);
+/** Why one `.cnj` file could not be read into a document. */
+export type CnjFileError =
+  | { readonly kind: 'file_not_found'; readonly path: string }
+  | { readonly kind: 'file_unparseable'; readonly path: string; readonly cause: ParseError }
+  | { readonly kind: 'file_unmodelable'; readonly path: string; readonly cause: CnjModelError };
+
+/**
+ * Render a file error as the text tools report.
+ *
+ * @param e - The error.
+ * @returns A one-line message naming the file.
+ */
+export const describeCnjFileError = (e: CnjFileError): string => {
+  switch (e.kind) {
+    case 'file_not_found': return `File not found: ${e.path}`;
+    case 'file_unparseable': return `Parse error in ${e.path}: ${e.cause.message}`;
+    case 'file_unmodelable': return `Model error in ${e.path}: ${describeCnjModelError(e.cause)}`;
+    default: return absurd(e);
+  }
+};
+
+/** Why a workspace snapshot could not be built from its entry file. */
+export type WorkspaceError =
+  | { readonly kind: 'entry_not_found'; readonly path: string }
+  | { readonly kind: 'entry_unparseable'; readonly path: string };
+
+/**
+ * Render a workspace error as the text tools report.
+ *
+ * @param e - The error.
+ * @returns A one-line message naming the entry file.
+ */
+export const describeWorkspaceError = (e: WorkspaceError): string => {
+  switch (e.kind) {
+    case 'entry_not_found': return `Entry file not found: ${e.path}`;
+    case 'entry_unparseable': return `Could not parse entry file: ${e.path}`;
+    default: return absurd(e);
+  }
+};
+
+const parseEntry = (filePath: string): Result<ParsedFileEntry, CnjFileError> => {
+  if (!existsSync(filePath)) return err({ kind: 'file_not_found', path: filePath });
   const content = readFileSync(filePath, 'utf8');
   const parsed = parse(content);
-  if (isErr(parsed)) return err(`Parse error in ${filePath}: ${parsed.error.message}`);
+  if (isErr(parsed)) return err({ kind: 'file_unparseable', path: filePath, cause: parsed.error });
   const doc = toCnjModel(parsed.value, filePath);
-  if (isErr(doc)) return err(`Model error in ${filePath}: ${doc.error}`);
+  if (isErr(doc)) return err({ kind: 'file_unmodelable', path: filePath, cause: doc.error });
   const dir = dirname(filePath);
   const directRefs = doc.value.charter.references
     .map((ref) => resolve(dir, ref))
@@ -129,14 +170,14 @@ export const computeContextKey = (
   files: ReadonlyArray<string>,
 ): string => {
   // Hashing the concatenation equals updating the hash file by file, in sorted order.
-  const contents = [...files].sort().map((f) => snapshot.files.get(f)?.content ?? '');
+  const contents = sortWith(ordString)(files).map((f) => snapshot.files.get(f)?.content ?? '');
   return createHash('sha256').update(contents.join('')).digest('hex').slice(0, 16);
 };
 
-export const buildWorkspaceSnapshot = (entryFile: string): Result<WorkspaceSnapshot, string> => {
-  if (!existsSync(entryFile)) return err(`Entry file not found: ${entryFile}`);
+export const buildWorkspaceSnapshot = (entryFile: string): Result<WorkspaceSnapshot, WorkspaceError> => {
+  if (!existsSync(entryFile)) return err({ kind: 'entry_not_found', path: entryFile });
   const files = discoverFiles(entryFile);
-  if (files.size === 0) return err(`Could not parse entry file: ${entryFile}`);
+  if (files.size === 0) return err({ kind: 'entry_unparseable', path: entryFile });
   const declaredFroms = buildTargetEdges(files);
   const targetNames = Array.from(declaredFroms.keys());
   const bindings = Array.from(files.values()).flatMap((entry) => bindingNames(entry.doc));

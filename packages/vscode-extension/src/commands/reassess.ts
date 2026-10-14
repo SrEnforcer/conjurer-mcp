@@ -5,7 +5,7 @@ import type { Option } from '@tsfpp/prelude';
 const SCORE_DIMS = ['feasibility', 'elegance', 'containment', 'value'] as const;
 type ScoreDim = typeof SCORE_DIMS[number];
 
-// DEVIATION(1.9): Date construction is required at the adapter boundary for inserted history records.
+// DEVIATION(4.6): the clock is read at the adapter boundary to date inserted history records.
 // eslint-disable-next-line no-restricted-syntax
 const TODAY = (): string => new Date().toISOString().slice(0, 10);
 

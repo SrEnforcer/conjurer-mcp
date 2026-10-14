@@ -5,9 +5,12 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { lookup, search, listAll, readSection, readGrimoire, parse, buildWorkspaceSnapshot, VALIDATION_RULE_DESCRIPTIONS, collectSymbolRefs } from '@conjurer/core';
+import {
+  lookup, search, listAll, readSection, readGrimoire, parse, buildWorkspaceSnapshot, VALIDATION_RULE_DESCRIPTIONS, collectSymbolRefs,
+  describeGrimoireError, describeWorkspaceError,
+} from '@conjurer/core';
 import type { SymbolIndex, SpecReader, EdnNode, EdnList } from '@conjurer/core';
-import { isSome, isErr, fromNullable, getOrElseOption, mapOption, intoMap } from '@tsfpp/prelude';
+import { isSome, isErr, fromNullable, getOrElseOption, mapOption, intoMap, sortWith, ordString } from '@tsfpp/prelude';
 
 /**
  * Dependencies for retrieval handlers.
@@ -58,7 +61,7 @@ export const handleSearch = (ctx: RetrievalContext, args: SearchArgs): ToolConte
 
 const handleSection = (ctx: RetrievalContext, grimoire: string, section: string): ToolContent => {
   const result = readSection(ctx.reader, grimoire, section);
-  if (isErr(result)) return toContent(result.error);
+  if (isErr(result)) return toContent(describeGrimoireError(result.error));
   return toContent(result.value);
 };
 
@@ -75,7 +78,7 @@ const handleExamples = (ctx: RetrievalContext, symbol: string, count: number | u
   const rec = lookup(ctx.index, symbol);
   if (!isSome(rec)) return toContent(`Symbol not found: ${symbol}`);
   const gResult = readGrimoire(ctx.reader, rec.value.grimoire);
-  if (isErr(gResult)) return toContent(gResult.error);
+  if (isErr(gResult)) return toContent(describeGrimoireError(gResult.error));
   const section = grimoireSymbolSection(gResult.value, symbol);
   const blocks = getOrElseOption<ReadonlyArray<string>>(() => [])(fromNullable(section.match(/```[a-z]*\n[\s\S]*?```/g)));
   const stripped = blocks.map((b) => b.replace(/^```[a-z]*\n/, '').replace(/```$/, ''));
@@ -91,9 +94,7 @@ const handleExamples = (ctx: RetrievalContext, symbol: string, count: number | u
  * @returns Tool text content payload.
  */
 export const handleList = (ctx: RetrievalContext, grimoire: string | undefined = undefined): ToolContent => {
-  const result = listAll(ctx.index, grimoire);
-  if (isErr(result)) return toContent(result.error);
-  return toContent(JSON.stringify(result.value, null, 2));
+  return toContent(JSON.stringify(listAll(ctx.index, grimoire), null, 2));
 };
 
 const visitNodeForCount = (node: EdnNode, isHead: boolean): ReadonlyArray<string> => {
@@ -140,7 +141,7 @@ export const handleCoverage = (
   const refs = intoMap(collectSymbolRefs(parsed.value).map((symbol) => [symbol, true] as const));
   const allSymbols = Array.from(ctx.index.symbols.values());
   const filtered = grimoire !== undefined ? allSymbols.filter((s) => s.grimoire === grimoire) : allSymbols;
-  const grimoireNames = Array.from(intoMap(filtered.map((s) => [s.grimoire, true] as const)).keys()).sort();
+  const grimoireNames = sortWith(ordString)(Array.from(intoMap(filtered.map((s) => [s.grimoire, true] as const)).keys()));
 
   const byGrimoire = grimoireNames.map((g) => {
     const available = filtered.filter((s) => s.grimoire === g);
@@ -239,7 +240,7 @@ export const handleExplainForm = (ctx: RetrievalContext, filePath: string, name:
  */
 export const handleTraceSymbol = (ctx: RetrievalContext, symbol: string, filePath: string): ToolContent => {
   const snapshotRes = buildWorkspaceSnapshot(resolvePath(filePath));
-  if (isErr(snapshotRes)) return toContent(`Workspace error: ${snapshotRes.error}`);
+  if (isErr(snapshotRes)) return toContent(`Workspace error: ${describeWorkspaceError(snapshotRes.error)}`);
   const snapshot = snapshotRes.value;
 
   const knownSymbol = isSome(lookup(ctx.index, symbol));
