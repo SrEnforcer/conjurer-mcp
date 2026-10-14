@@ -89,6 +89,7 @@ describe('buildDecidePrompt', () => {
     expect(prompt).toContain('(f/reassess :of :alpha\n  :date      "2026-10-14"');
     expect(prompt).toContain('Add it to the `:history` vector of `(f/candidate :alpha`');
     expect(prompt).toContain("Never edit the candidate's own :status or :scores");
+    expect(prompt).toContain("If the charter's `:updated` is earlier than 2026-10-14, set it to 2026-10-14.");
   });
 });
 
