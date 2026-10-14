@@ -139,7 +139,25 @@
      :date "2026-10-14"
      :decision "The candidate score lens and the Reassess defaults show the effective scores
                 (each dimension from its latest reassessment, foresight.md · f/reassess), not
-                the scores as first written, so a reassessment moves the badge."}]
+                the scores as first written, so a reassessment moves the badge."}
+    {:id         :reassess-into-history
+     :date       "2026-10-14"
+     :supersedes :codelens-candidate-actions-2026-06-12
+     :decision   "f/reassess insertion contract reversed: a reassessment is placed inside the
+                  candidate's :history vector, appended as its last entry, or as a new
+                  :history [...] on the line after :scores when the candidate has none. It is
+                  no longer a standalone block after the closing paren. One form per candidate
+                  folds as one unit and matches how :search_decisions was already written; the
+                  derived status and effective scores read the same either way. Applies to the
+                  Reassess button (commands/reassess.ts, placement in the pure
+                  commands/history-insert.ts) and to the Decide prompt
+                  (commands/decide-prompt.ts), so :decide-candidate's reference to the old
+                  contract now means this one. The rest of :codelens-candidate-actions-2026-06-12
+                  stands; f/hoist is still a standalone block. The button's f/reassess now
+                  follows foresight.md: :scores carries only the dimensions that changed (and
+                  is omitted when none did), and the non-spec :total field is dropped.
+                  The 2026-06-12 VSIX entry in
+                  conjurer-mcp.cnj, which states the old contract in prose, is left as written."}]
   :open []
   :outputs {
     :vscode-extension (target :typescript :standard :tsf-plus-plus)}

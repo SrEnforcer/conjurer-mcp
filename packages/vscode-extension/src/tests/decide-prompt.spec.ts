@@ -84,10 +84,10 @@ describe('buildDecidePrompt', () => {
     expect(prompt).toMatch(/\*\*plan\*\*.*\*\*keep\*\*.*\*\*abandon\*\*/s);
   });
 
-  it('records the verdict as a dated f/reassess after the candidate, never as an edit', () => {
+  it('records the verdict as a dated f/reassess in the candidate :history, never as an edit', () => {
     const prompt = promptFor('alpha');
     expect(prompt).toContain('(f/reassess :of :alpha\n  :date      "2026-10-14"');
-    expect(prompt).toContain('directly after the closing paren of `(f/candidate :alpha`');
+    expect(prompt).toContain('Add it to the `:history` vector of `(f/candidate :alpha`');
     expect(prompt).toContain("Never edit the candidate's own :status or :scores");
   });
 });

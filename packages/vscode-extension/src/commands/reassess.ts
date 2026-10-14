@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { some, none, isSome, matchOption } from '@tsfpp/prelude';
 import type { Option } from '@tsfpp/prelude';
+import { historyInsertion } from './history-insert.js';
 
 const SCORE_DIMS = ['feasibility', 'elegance', 'containment', 'value'] as const;
 type ScoreDim = typeof SCORE_DIMS[number];
@@ -43,21 +44,29 @@ export const findFormEndLine = (lines: ReadonlyArray<string>, startLine: number)
   return findFormEndLineFrom(lines, startLine, { depth: 0, index: startLine });
 };
 
-const buildReassessBlock = (
-  id: string,
-  scores: Record<ScoreDim, number>,
-  rationale: string,
-): string => {
-  const total = SCORE_DIMS.reduce((s, d) => s + scores[d], 0);
-  const scoresEdn = SCORE_DIMS.map((d) => `:${d} ${scores[d]}`).join(' ');
+type ReassessInput = {
+  readonly id: string;
+  readonly before: Readonly<Record<ScoreDim, number>>;
+  readonly after: Readonly<Record<ScoreDim, number>>;
+  readonly rationale: string;
+  readonly today: string;
+};
+
+/**
+ * Lines of one f/reassess form, unindented; placed into the candidate's :history.
+ * Per foresight.md, :scores carries only the dimensions that changed and is omitted when none did.
+ */
+export const buildReassessEntry = ({ id, before, after, rationale, today }: ReassessInput): ReadonlyArray<string> => {
+  const changed = SCORE_DIMS.filter((d) => after[d] !== before[d]);
+  const scoresLine = changed.length === 0
+    ? []
+    : [`  :scores    {${changed.map((d) => `:${d} ${after[d]}`).join(' ')}}`];
   return [
-    ``,
     `(f/reassess :of :${id}`,
-    `  :date   "${TODAY()}"`,
-    `  :scores {${scoresEdn}}`,
-    `  :total  ${total}`,
+    `  :date      "${today}"`,
+    ...scoresLine,
     `  :rationale "${rationale.replace(/"/g, '\\"')}")`,
-  ].join('\n');
+  ];
 };
 
 const buildHoistBlock = (id: string, into: string, note: string): string =>
@@ -101,10 +110,10 @@ const collectScores = async (
   return collectScores(remainingDims, currentScores, { ...acc, [dim]: score });
 };
 
-const makeInsertPosition = (line: number): vscode.Position => {
+const makeInsertPosition = (line: number, character = 0): vscode.Position => {
   // DEVIATION(1.9): vscode.Position is a VS Code adapter type.
   // eslint-disable-next-line no-restricted-syntax
-  return new vscode.Position(line, 0);
+  return new vscode.Position(line, character);
 };
 
 const makeWorkspaceEdit = (): vscode.WorkspaceEdit => {
@@ -134,11 +143,15 @@ const doReassessCandidate = async (
 
   const lines = getLines(editor.document);
   const endLine = findFormEndLine(lines, startLine);
-  const insertPos = makeInsertPosition(endLine + 1);
-  const block = buildReassessBlock(id, scores, rationale);
+  const entry = buildReassessEntry({ id, before: currentScores, after: scores, rationale, today: TODAY() });
+  const insertion = historyInsertion(lines, { startLine, endLine }, entry);
+  if (insertion === undefined) {
+    void vscode.window.showErrorMessage(`Could not place f/reassess in the :history of :${id}.`);
+    return;
+  }
 
   const edit = makeWorkspaceEdit();
-  edit.insert(editor.document.uri, insertPos, block + '\n');
+  edit.insert(editor.document.uri, makeInsertPosition(insertion.line, insertion.character), insertion.text);
   await vscode.workspace.applyEdit(edit);
 };
 
