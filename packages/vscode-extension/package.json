@@ -2,7 +2,7 @@
   "name": "conjurer-mcp",
   "displayName": "Conjurer",
   "description": "Inline spec access for .cnj authors — hover docs, CodeLens, validation, and folder materialisation.",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "publisher": "conjurer",
   "license": "MIT",
   "repository": {
