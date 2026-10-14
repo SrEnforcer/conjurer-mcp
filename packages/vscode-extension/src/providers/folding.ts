@@ -1,4 +1,7 @@
 import * as vscode from 'vscode';
+import { parse, toCnjModel } from '@conjurer/core';
+import type { CnjDocument } from '@conjurer/core';
+import { isErr, match } from '@tsfpp/prelude';
 
 const HOIST_START_RE = /^\(f\/hoist\b/;
 const CANDIDATE_START_RE = /^\(f\/candidate\b/;
@@ -22,19 +25,36 @@ const foldRangeFromStart = (
   end: (starts[index + 1] ?? lines.length) - 1,
 });
 
-// A candidate is hoisted once an f/hoist names it (foresight.md · f/reassess); its own
-// :status is never edited, so the hoist forms are the evidence, with :status :hoisted kept
-// for files written before that rule.
-const hoistedIds = (lines: ReadonlyArray<string>): ReadonlyArray<string> =>
-  Array.from(lines.join('\n').matchAll(HOIST_OF_RE), (match) => match[1] ?? '');
+// Lifecycle statuses whose candidates are closed and so collapsed by default.
+const CLOSED_STATUSES: ReadonlyArray<string> = ['hoisted', 'abandoned'];
 
-const shouldFoldRange = (lines: ReadonlyArray<string>, range: FoldRange, hoisted: ReadonlyArray<string>): boolean => {
+// The current status is derived by the core model (foresight.md · f/reassess): hoisted once an
+// f/hoist names the candidate, otherwise the latest :status among its reassessments. The
+// candidate's own :status is never edited, so it cannot be read off the form.
+const closedIdsFromModel = (lines: ReadonlyArray<string>): ReadonlyArray<string> | undefined => {
+  const parsed = parse(lines.join('\n'));
+  if (isErr(parsed)) return undefined;
+  const doc = match((): CnjDocument | undefined => undefined, (d: CnjDocument): CnjDocument | undefined => d)(
+    toCnjModel(parsed.value, ''),
+  );
+  return doc?.candidates.filter((c) => CLOSED_STATUSES.includes(c.status)).map((c) => c.id);
+};
+
+// While the file does not parse (mid-edit), fall back to what a line scan can see: hoists
+// that name a candidate, and :status :hoisted written on files from before that rule.
+const closedIdsFromScan = (lines: ReadonlyArray<string>): ReadonlyArray<string> => [
+  ...Array.from(lines.join('\n').matchAll(HOIST_OF_RE), (m) => m[1] ?? ''),
+  ...topFormStarts(lines)
+    .map((_, index, starts) => foldRangeFromStart(lines, starts, index))
+    .filter((r) => STATUS_HOISTED_RE.test(lines.slice(r.start, r.end + 1).join('\n')))
+    .map((r) => CANDIDATE_ID_RE.exec(lines[r.start] ?? '')?.[1] ?? ''),
+];
+
+const shouldFoldRange = (lines: ReadonlyArray<string>, range: FoldRange, closed: ReadonlyArray<string>): boolean => {
   const firstLine = lines[range.start] ?? '';
   if (HOIST_START_RE.test(firstLine)) return true;
   if (!CANDIDATE_START_RE.test(firstLine)) return false;
-  const id = CANDIDATE_ID_RE.exec(firstLine)?.[1] ?? '';
-  const body = lines.slice(range.start, range.end + 1).join('\n');
-  return hoisted.includes(id) || STATUS_HOISTED_RE.test(body);
+  return closed.includes(CANDIDATE_ID_RE.exec(firstLine)?.[1] ?? '');
 };
 
 const countBracketDelta = (line: string): number =>
@@ -59,16 +79,16 @@ const decisionStarts = (lines: ReadonlyArray<string>): ReadonlyArray<number> =>
 
 /**
  * Pure: compute fold ranges for forms that should be collapsed by default.
- * Folds: (f/hoist ...) forms and (f/candidate ...) forms that an f/hoist names (or that say :status :hoisted).
+ * Folds: (f/hoist ...) forms and (f/candidate ...) forms whose current status is hoisted or abandoned.
  * Returns plain {start, end} pairs so callers can test without vscode types.
  */
 export const computeHoistFoldRanges = (
   lines: ReadonlyArray<string>,
 ): ReadonlyArray<FoldRange> => {
-  const hoisted = hoistedIds(lines);
+  const closed = closedIdsFromModel(lines) ?? closedIdsFromScan(lines);
   return topFormStarts(lines)
     .map((_, index, starts) => foldRangeFromStart(lines, starts, index))
-    .filter((range) => shouldFoldRange(lines, range, hoisted));
+    .filter((range) => shouldFoldRange(lines, range, closed));
 };
 
 /**
@@ -106,7 +126,7 @@ export const mkFoldingProvider = (): ConjurerFoldingProvider => ({
 });
 
 /**
- * Programmatically collapse all hoisted forms in the active editor on first open.
+ * Programmatically collapse all hoisted and abandoned forms in the active editor on first open.
  * Does nothing for non-.cnj files or files with no hoisted forms.
  * The 300ms defer lets VS Code finish building its fold model before we issue the
  * fold command — calling editor.fold before the model is ready silently no-ops.

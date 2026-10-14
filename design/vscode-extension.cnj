@@ -157,7 +157,18 @@
                   follows foresight.md: :scores carries only the dimensions that changed (and
                   is omitted when none did), and the non-spec :total field is dropped.
                   The 2026-06-12 VSIX entry in
-                  conjurer-mcp.cnj, which states the old contract in prose, is left as written."}]
+                  conjurer-mcp.cnj, which states the old contract in prose, is left as written."}
+    {:id       :fold-closed-candidates
+     :date     "2026-10-14"
+     :decision "Default folding extends from hoisted to all closed candidates: an f/candidate
+                is collapsed on first open when its current status is :hoisted or :abandoned.
+                The status is the core model's derived one (toCnjModel: hoisted once an f/hoist
+                names it, otherwise the latest :status in its reassessments, nested or
+                standalone), the same the CodeLens shows; the candidate's own :status is never
+                edited, so it cannot be read off the form. While the file does not parse, the
+                fold falls back to the line scan (f/hoist names and :status :hoisted). This
+                extends the undated-id 2026-06-10 hoisted-form-folding entry, which carries no
+                :id and so is named here in prose."}]
   :open []
   :outputs {
     :vscode-extension (target :typescript :standard :tsf-plus-plus)}
