@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/SrEnforcer/conjurer-mcp/compare/v0.3.0...v0.4.0) (2026-10-14)
+
+
+### Features
+
+* **extension:** keep the charter's :updated current when writing entries ([56c1f57](https://github.com/SrEnforcer/conjurer-mcp/commit/56c1f57ab6c0bbffe6f91af27023dc0061911887))
+
 ## [0.3.0](https://github.com/SrEnforcer/conjurer-mcp/compare/v0.2.0...v0.3.0) (2026-10-14)
 
 
