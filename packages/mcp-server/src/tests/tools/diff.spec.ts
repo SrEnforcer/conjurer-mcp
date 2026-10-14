@@ -2,7 +2,40 @@
 import { describe, it, expect, vi } from 'vitest';
 import { fromNullable, getOrElseOption } from '@tsfpp/prelude';
 import { handleDiffCnj, handleDiffCandidates } from '../../tools/diff.js';
-import { parseFirstToolObject } from './tool-json.js';
+import { z } from 'zod';
+import { parseToolJson } from './tool-json.js';
+
+const Added = z.array(z.string());
+const SetChange = z.looseObject({ added: Added, removed: Added });
+const ScalarChange = z.looseObject({ before: z.unknown(), after: z.unknown() }).nullable();
+const DiffSummary = z.looseObject({ has_changes: z.boolean(), change_count: z.number() });
+
+const DiffCnjSchema = z.looseObject({
+  summary: DiffSummary,
+  charter: z.looseObject({
+    title: ScalarChange,
+    version: ScalarChange,
+    goals: SetChange,
+    open: SetChange,
+    decisions: z.looseObject({ added: z.array(z.looseObject({ date: z.string() })) }),
+  }),
+  assets: SetChange,
+  targets: SetChange,
+});
+
+const CandidateRef = z.looseObject({ id: z.string() });
+const DiffCandidatesSchema = z.looseObject({
+  summary: DiffSummary.extend({ graduation_count: z.number() }),
+  candidates: z.looseObject({
+    added: z.array(CandidateRef),
+    removed: z.array(CandidateRef),
+    hoisted: z.array(CandidateRef.extend({ hoist_date: z.string(), into: z.string() })),
+    status_changes: z.array(CandidateRef.extend({ before: z.string(), after: z.string() })),
+    score_changes: z.array(CandidateRef.extend({
+      score_changes: z.record(z.string(), z.looseObject({ before: z.number(), after: z.number() })),
+    })),
+  }),
+});
 
 const A = [
   '(charter "Proj" :version "0.9.0" :goals ["keep this" "remove this"]',
@@ -71,79 +104,79 @@ describe('handleDiffCnj', () => {
 
   it('reports no changes for identical files', () => {
     const r = handleDiffCnj('/vfs/diff/a.cnj', '/vfs/diff/same.cnj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, DiffCnjSchema);
     expect(d.summary.has_changes).toBe(false);
     expect(d.summary.change_count).toBe(0);
   });
 
   it('detects version change', () => {
     const r = handleDiffCnj('/vfs/diff/a.cnj', '/vfs/diff/b.cnj');
-    const d = parseFirstToolObject(r);
-    expect(d.charter.version.before).toBe('0.9.0');
-    expect(d.charter.version.after).toBe('1.0.0');
+    const d = parseToolJson(r, DiffCnjSchema);
+    expect(d.charter.version?.before).toBe('0.9.0');
+    expect(d.charter.version?.after).toBe('1.0.0');
   });
 
   it('reports null scalar change when value is unchanged', () => {
     const r = handleDiffCnj('/vfs/diff/a.cnj', '/vfs/diff/b.cnj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, DiffCnjSchema);
     expect(d.charter.title).toBeNull();
   });
 
   it('detects removed goal', () => {
     const r = handleDiffCnj('/vfs/diff/a.cnj', '/vfs/diff/b.cnj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, DiffCnjSchema);
     expect(d.charter.goals.removed).toContain('remove this');
   });
 
   it('detects added goal', () => {
     const r = handleDiffCnj('/vfs/diff/a.cnj', '/vfs/diff/b.cnj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, DiffCnjSchema);
     expect(d.charter.goals.added).toContain('new goal');
   });
 
   it('keeps goals present in both as unchanged', () => {
     const r = handleDiffCnj('/vfs/diff/a.cnj', '/vfs/diff/b.cnj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, DiffCnjSchema);
     expect(d.charter.goals.added).not.toContain('keep this');
     expect(d.charter.goals.removed).not.toContain('keep this');
   });
 
   it('detects added decision', () => {
     const r = handleDiffCnj('/vfs/diff/a.cnj', '/vfs/diff/b.cnj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, DiffCnjSchema);
     expect(d.charter.decisions.added).toHaveLength(1);
-    expect(d.charter.decisions.added[0].date).toBe('2026-06-09');
+    expect(d.charter.decisions.added[0]?.date).toBe('2026-06-09');
   });
 
   it('detects added open question', () => {
     const r = handleDiffCnj('/vfs/diff/a.cnj', '/vfs/diff/b.cnj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, DiffCnjSchema);
     expect(d.charter.open.added).toContain('new question');
     expect(d.charter.open.removed).toContain('old question');
   });
 
   it('detects removed asset', () => {
     const r = handleDiffCnj('/vfs/diff/a.cnj', '/vfs/diff/b.cnj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, DiffCnjSchema);
     expect(d.assets.removed).toContain('core-lib');
   });
 
   it('detects added target', () => {
     const r = handleDiffCnj('/vfs/diff/a.cnj', '/vfs/diff/b.cnj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, DiffCnjSchema);
     expect(d.targets.added).toContain('mcp-server');
   });
 
   it('does not report shared-core as added or removed', () => {
     const r = handleDiffCnj('/vfs/diff/a.cnj', '/vfs/diff/b.cnj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, DiffCnjSchema);
     expect(d.targets.added).not.toContain('shared-core');
     expect(d.targets.removed).not.toContain('shared-core');
   });
 
   it('counts changes correctly', () => {
     const r = handleDiffCnj('/vfs/diff/a.cnj', '/vfs/diff/b.cnj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, DiffCnjSchema);
     // version changed (1) + goal added (1) + goal removed (1) + decision added (1)
     // + open added (1) + open removed (1) + asset removed (1) + target added (1) = 8
     expect(d.summary.change_count).toBe(8);
@@ -159,15 +192,15 @@ describe('handleDiffCandidates', () => {
 
   it('reports no changes for identical backlogs', () => {
     const r = handleDiffCandidates('/vfs/diff/backlog-a.cnj', '/vfs/diff/backlog-same.cnj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, DiffCandidatesSchema);
     expect(d.summary.has_changes).toBe(false);
     expect(d.summary.change_count).toBe(0);
   });
 
   it('detects added candidates (in B, not in A)', () => {
     const r = handleDiffCandidates('/vfs/diff/backlog-a.cnj', '/vfs/diff/backlog-b.cnj');
-    const d = parseFirstToolObject(r);
-    const ids = d.candidates.added.map((c: { readonly id: string }) => c.id);
+    const d = parseToolJson(r, DiffCandidatesSchema);
+    const ids = d.candidates.added.map((c) => c.id);
     expect(ids).toContain('gamma');
     expect(ids).not.toContain('alpha');
     expect(ids).not.toContain('beta');
@@ -175,42 +208,42 @@ describe('handleDiffCandidates', () => {
 
   it('detects hoisted candidates (in A, f/hoist present in B)', () => {
     const r = handleDiffCandidates('/vfs/diff/backlog-a.cnj', '/vfs/diff/backlog-b.cnj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, DiffCandidatesSchema);
     expect(d.candidates.hoisted).toHaveLength(1);
-    expect(d.candidates.hoisted[0].id).toBe('alpha');
-    expect(d.candidates.hoisted[0].hoist_date).toBe('2026-06-10');
-    expect(d.candidates.hoisted[0].into).toBe('decision/alpha-accepted');
+    expect(d.candidates.hoisted[0]?.id).toBe('alpha');
+    expect(d.candidates.hoisted[0]?.hoist_date).toBe('2026-06-10');
+    expect(d.candidates.hoisted[0]?.into).toBe('decision/alpha-accepted');
   });
 
   it('does not report hoisted candidates as removed', () => {
     const r = handleDiffCandidates('/vfs/diff/backlog-a.cnj', '/vfs/diff/backlog-b.cnj');
-    const d = parseFirstToolObject(r);
-    const removedIds = d.candidates.removed.map((c: { readonly id: string }) => c.id);
+    const d = parseToolJson(r, DiffCandidatesSchema);
+    const removedIds = d.candidates.removed.map((c) => c.id);
     expect(removedIds).not.toContain('alpha');
   });
 
   it('detects status changes (proposed → planned)', () => {
     const r = handleDiffCandidates('/vfs/diff/backlog-a.cnj', '/vfs/diff/backlog-b.cnj');
-    const d = parseFirstToolObject(r);
-    const betaChange = d.candidates.status_changes.find((c: { readonly id: string }) => c.id === 'beta');
+    const d = parseToolJson(r, DiffCandidatesSchema);
+    const betaChange = d.candidates.status_changes.find((c) => c.id === 'beta');
     expect(betaChange).toBeDefined();
-    expect(betaChange.before).toBe('proposed');
-    expect(betaChange.after).toBe('planned');
+    expect(betaChange?.before).toBe('proposed');
+    expect(betaChange?.after).toBe('planned');
   });
 
   it('detects score changes with before/after per dimension', () => {
     // beta :value changed from 6 to 7
     const r = handleDiffCandidates('/vfs/diff/backlog-a.cnj', '/vfs/diff/backlog-b.cnj');
-    const d = parseFirstToolObject(r);
-    const betaScoreDiff = d.candidates.score_changes.find((c: { readonly id: string }) => c.id === 'beta');
+    const d = parseToolJson(r, DiffCandidatesSchema);
+    const betaScoreDiff = d.candidates.score_changes.find((c) => c.id === 'beta');
     expect(betaScoreDiff).toBeDefined();
-    expect(betaScoreDiff.score_changes.value.before).toBe(6);
-    expect(betaScoreDiff.score_changes.value.after).toBe(7);
+    expect(betaScoreDiff?.score_changes['value']?.before).toBe(6);
+    expect(betaScoreDiff?.score_changes['value']?.after).toBe(7);
   });
 
   it('includes graduation count in summary', () => {
     const r = handleDiffCandidates('/vfs/diff/backlog-a.cnj', '/vfs/diff/backlog-b.cnj');
-    const d = parseFirstToolObject(r);
+    const d = parseToolJson(r, DiffCandidatesSchema);
     expect(d.summary.graduation_count).toBe(1);
   });
 });
