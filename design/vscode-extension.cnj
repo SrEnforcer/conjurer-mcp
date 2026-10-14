@@ -168,7 +168,16 @@
                 edited, so it cannot be read off the form. While the file does not parse, the
                 fold falls back to the line scan (f/hoist names and :status :hoisted). This
                 extends the undated-id 2026-06-10 hoisted-form-folding entry, which carries no
-                :id and so is named here in prose."}]
+                :id and so is named here in prose."}
+    {:id       :bump-charter-updated
+     :date     "2026-10-14"
+     :decision "Commands that write a dated entry keep the charter's :updated current, so the
+                charter-updated-stale warning (mcp-server.cnj) is not raised by the extension's
+                own edits. The Reassess and Hoist buttons move :updated forward to today in the
+                same edit as the entry, replacing only the date and keeping any comment after
+                it; a later or equal date is left alone, and a charter without :updated gets
+                none added. The rule is pure (commands/charter-updated.ts). The Decide prompt
+                asks the chat to do the same when it records the verdict."}]
   :open []
   :outputs {
     :vscode-extension (target :typescript :standard :tsf-plus-plus)}

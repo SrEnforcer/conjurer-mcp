@@ -74,7 +74,7 @@ const recordStep = (id: string, today: string): ReadonlyArray<string> => [
   `  :rationale "what changed in the context, the verdict, and the argument for it"`,
   `  :status    :<planned|abandoned>) ;; omit for keep`,
   `\`\`\``,
-  `Add it to the \`:history\` vector of \`(f/candidate :${id}\`: append it as the last entry if \`:history\` exists, otherwise add \`:history [...]\` on the line after \`:scores\`. Never edit the candidate's own :status or :scores: the history is the record. If you can edit files, insert it once I have confirmed the verdict.`,
+  `Add it to the \`:history\` vector of \`(f/candidate :${id}\`: append it as the last entry if \`:history\` exists, otherwise add \`:history [...]\` on the line after \`:scores\`. If the charter's \`:updated\` is earlier than ${today}, set it to ${today}. Never edit the candidate's own :status or :scores: the history is the record. If you can edit files, insert it once I have confirmed the verdict.`,
 ];
 
 /** Build the Decide prompt for one candidate. */

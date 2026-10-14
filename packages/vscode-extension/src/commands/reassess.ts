@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { some, none, isSome, matchOption } from '@tsfpp/prelude';
 import type { Option } from '@tsfpp/prelude';
 import { historyInsertion } from './history-insert.js';
+import { charterUpdatedBump } from './charter-updated.js';
 
 const SCORE_DIMS = ['feasibility', 'elegance', 'containment', 'value'] as const;
 type ScoreDim = typeof SCORE_DIMS[number];
@@ -122,6 +123,18 @@ const makeWorkspaceEdit = (): vscode.WorkspaceEdit => {
   return new vscode.WorkspaceEdit();
 };
 
+const makeRange = (line: number, character: number, length: number): vscode.Range => {
+  // DEVIATION(1.9): vscode.Range is a VS Code adapter type.
+  // eslint-disable-next-line no-restricted-syntax
+  return new vscode.Range(line, character, line, character + length);
+};
+
+/** Adds to `edit` the move of the charter's :updated to today, when it is behind. */
+const bumpCharterUpdated = (edit: vscode.WorkspaceEdit, uri: vscode.Uri, lines: ReadonlyArray<string>): void => {
+  const bump = charterUpdatedBump(lines, TODAY());
+  if (bump !== undefined) edit.replace(uri, makeRange(bump.line, bump.character, bump.length), bump.text);
+};
+
 const getLines = (document: vscode.TextDocument): ReadonlyArray<string> =>
   Array.from({ length: document.lineCount }, (_, i) => document.lineAt(i).text);
 
@@ -152,6 +165,7 @@ const doReassessCandidate = async (
 
   const edit = makeWorkspaceEdit();
   edit.insert(editor.document.uri, makeInsertPosition(insertion.line, insertion.character), insertion.text);
+  bumpCharterUpdated(edit, editor.document.uri, lines);
   await vscode.workspace.applyEdit(edit);
 };
 
@@ -177,6 +191,7 @@ const doHoistCandidate = async (id: string, startLine: number): Promise<void> =>
 
   const edit = makeWorkspaceEdit();
   edit.insert(editor.document.uri, insertPos, block + '\n');
+  bumpCharterUpdated(edit, editor.document.uri, lines);
   await vscode.workspace.applyEdit(edit);
 };
 
