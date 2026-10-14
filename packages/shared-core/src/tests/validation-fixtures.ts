@@ -14,6 +14,7 @@ export const emptyDoc: CnjDocument = {
   charter: {
     title: '',
     version: '',
+    updated: '',
     goals: [],
     decisions: [],
     open: [],
@@ -34,6 +35,7 @@ export const validDoc: CnjDocument = {
   charter: {
     title: 'My Project',
     version: '1.0.0',
+    updated: '',
     goals: ['Be useful'],
     decisions: [],
     open: [],

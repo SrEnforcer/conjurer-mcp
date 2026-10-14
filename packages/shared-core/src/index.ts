@@ -43,6 +43,7 @@ export {
   validateCnj, checkSymbolUsage, checkReferences, checkFormReferences, checkEnsurePrelude, checkIncantationPrelude, lintConventions,
   VALIDATION_RULE_DESCRIPTIONS,
 } from './validation.js';
+export { checkCharterUpdated } from './charter-freshness.js';
 export { buildIndex, describeIndexError } from './symbol-index.js';
 export type {
   ResolvedRef,

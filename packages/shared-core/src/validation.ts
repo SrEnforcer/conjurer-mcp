@@ -8,6 +8,7 @@ import { EMPTY_PRELUDE, preludeHeads, semanticHeads } from './prelude.js';
 import type { Prelude } from './prelude.js';
 import { findEnsureSites, unverifiableAtMcp } from './postconditions.js';
 import { lintRetiredForms } from './migration-lint.js';
+import { checkCharterUpdated } from './charter-freshness.js';
 
 export type ValidationMode = 'authored' | 'recovered';
 
@@ -285,6 +286,7 @@ export const checkIncantationPrelude = (forms: ReadonlyArray<EdnNode>, prelude: 
 export const lintConventions = (doc: CnjDocument): ReadonlyArray<Violation> => [
   ...checkDecisionsConventions(doc),
   ...checkDecisionsOrder(doc),
+  ...checkCharterUpdated(doc),
   ...checkTargetConventions(doc),
 ];
 
@@ -293,6 +295,7 @@ export const VALIDATION_RULE_DESCRIPTIONS: Readonly<Record<string, ReadonlyArray
     'must have a non-empty title (charter-title)',
     'version must be semver (charter-version)',
     'at least one goal should be declared (charter-goals)',
+    ':updated should not be earlier than the latest dated entry in the file (charter-updated-stale)',
   ],
   target: [
     'must have a non-empty name (target-name)',

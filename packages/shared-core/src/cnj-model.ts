@@ -6,6 +6,8 @@ import { bareName } from './references.js';
 export type Charter = {
   readonly title: string;
   readonly version: string;
+  /** The charter's `:updated` date as written; empty when absent. */
+  readonly updated: string;
   readonly goals: ReadonlyArray<string>;
   readonly decisions: ReadonlyArray<ReadonlyMap<string, EdnNode>>;
   readonly open: ReadonlyArray<string>;
@@ -155,6 +157,7 @@ const parseCharter = (elems: ReadonlyArray<EdnNode>): Charter => {
   return {
     title,
     version: getStr(kv, 'version'),
+    updated: getStr(kv, 'updated'),
     goals: getList(kv, 'goals'),
     decisions: getMaps(kv, 'decisions'),
     open: getList(kv, 'open'),
@@ -334,6 +337,7 @@ const processForms = (
 const defaultCharter: Charter = {
   title: '',
   version: '',
+  updated: '',
   goals: [],
   decisions: [],
   open: [],
