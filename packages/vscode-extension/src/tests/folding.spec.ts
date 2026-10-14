@@ -96,9 +96,9 @@ describe('computeHoistFoldRanges candidate status handling', () => {
     expect(ranges[1]).toEqual({ start: 4, end: 5 });
   });
 
-  it('does not fold f/candidate with :status :abandoned', () => {
+  it('folds f/candidate with :status :abandoned', () => {
     const lines = ['(f/candidate :old', '  :status :abandoned)'];
-    expect(computeHoistFoldRanges(lines)).toHaveLength(0);
+    expect(computeHoistFoldRanges(lines)).toEqual([{ start: 0, end: 1 }]);
   });
 });
 
@@ -177,5 +177,44 @@ describe('computeHoistFoldRanges — hoisted by f/hoist', () => {
       '(f/hoist :of :diff-intent :date "2026-11-20" :into :decision/x-diff-intent-accepted)',
     ];
     expect(computeHoistFoldRanges(lines)).toEqual([{ start: 0, end: 2 }, { start: 5, end: 5 }]);
+  });
+});
+
+describe('computeHoistFoldRanges — status derived from reassessments', () => {
+  it('folds a candidate whose latest reassessment in :history abandons it', () => {
+    const lines = [
+      '(f/candidate :snap',
+      '  :status  :proposed',
+      '  :history [(f/reassess :of :snap',
+      '              :date "2026-10-14"',
+      '              :status :abandoned)])',
+      '(f/candidate :live',
+      '  :status :proposed)',
+    ];
+    expect(computeHoistFoldRanges(lines)).toEqual([{ start: 0, end: 4 }]);
+  });
+
+  it('folds a candidate abandoned by a standalone f/reassess', () => {
+    const lines = [
+      '(f/candidate :snap',
+      '  :status :proposed)',
+      '(f/reassess :of :snap :date "2026-10-14" :status :abandoned)',
+    ];
+    expect(computeHoistFoldRanges(lines)).toEqual([{ start: 0, end: 1 }]);
+  });
+
+  it('does not fold a candidate re-planned after an earlier abandonment', () => {
+    const lines = [
+      '(f/candidate :snap',
+      '  :status  :proposed',
+      '  :history [(f/reassess :of :snap :date "2026-09-01" :status :abandoned)',
+      '            (f/reassess :of :snap :date "2026-10-14" :status :planned)])',
+    ];
+    expect(computeHoistFoldRanges(lines)).toHaveLength(0);
+  });
+
+  it('falls back to hoists and :status :hoisted while the file does not parse', () => {
+    const lines = ['(f/candidate :a', '  :status :hoisted)', '(f/candidate :b', '  :status :proposed'];
+    expect(computeHoistFoldRanges(lines)).toEqual([{ start: 0, end: 1 }]);
   });
 });
