@@ -15,6 +15,7 @@ const ForesightHealthSchema = z.looseObject({
   total_candidates_scanned: z.number(),
   total_files_scanned: z.number(),
   total_hoists_scanned: z.number(),
+  unreadable_files: z.array(z.looseObject({ path: z.string(), reason: z.string() })),
 });
 
 // Fixtures are dated June 2026; health is checked against a fixed date so results never age.
@@ -161,5 +162,20 @@ describe('handleForesightHealth — current status from f/hoist', () => {
     const d = parseToolJson(r, ForesightHealthSchema);
     expect(d.lifecycle_distribution).toEqual({ hoisted: 1 });
     expect(d.thin_rationale).toHaveLength(0);
+  });
+});
+
+describe('handleForesightHealth — unreadable referenced files', () => {
+  it('is not consistent when a referenced file could not be read, even with no backlog issues', () => {
+    const d = parseToolJson(handleForesightHealth('/vfs/foresight/partref.cnj', { today: TODAY }), ForesightHealthSchema);
+    expect(d.issue_count).toBe(0);
+    expect(d.unreadable_files.map((u) => u.path)).toEqual(['/vfs/foresight/broken.cnj']);
+    expect(d.consistent).toBe(false);
+  });
+
+  it('stays consistent for the same backlog when every file reads', () => {
+    const d = parseToolJson(handleForesightHealth('/vfs/foresight/healthy.cnj', { today: TODAY }), ForesightHealthSchema);
+    expect(d.unreadable_files).toEqual([]);
+    expect(d.consistent).toBe(true);
   });
 });

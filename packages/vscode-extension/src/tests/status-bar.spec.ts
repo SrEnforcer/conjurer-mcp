@@ -22,6 +22,7 @@ const makeSnapshot = (...srcs: string[]): WorkspaceSnapshot => ({
   targetEdges: intoMap([]),
   bindingDeps: intoMap([]),
   unresolvedDeps: [],
+  unreadableFiles: [],
   cycleDetected: false,
 });
 
@@ -89,7 +90,7 @@ describe('computeHealthIssues — healthy workspace', () => {
   });
 
   it('returns empty for an empty snapshot (no files)', () => {
-    const snapshot: WorkspaceSnapshot = { files: intoMap([]), targetEdges: intoMap([]), bindingDeps: intoMap([]), unresolvedDeps: [], cycleDetected: false };
+    const snapshot: WorkspaceSnapshot = { files: intoMap([]), targetEdges: intoMap([]), bindingDeps: intoMap([]), unresolvedDeps: [], unreadableFiles: [], cycleDetected: false };
     expect(computeHealthIssues(snapshot, TODAY)).toHaveLength(0);
   });
 });
@@ -185,5 +186,17 @@ describe('computeHealthIssues — multi-file workspace', () => {
     const issues = computeHealthIssues(makeSnapshot(STALE, HIGH_NO_COND), TODAY);
     expect(issues.some((i) => i.kind === 'stale')).toBe(true);
     expect(issues.some((i) => i.kind === 'high_score_no_conditions')).toBe(true);
+  });
+});
+
+describe('computeHealthIssues — unreadable referenced files', () => {
+  it('reports each unreadable file first, by name, with its reason', () => {
+    const snapshot: WorkspaceSnapshot = {
+      ...makeSnapshot(HEALTHY),
+      unreadableFiles: [{ path: '/test/broken.cnj', reason: 'Parse error at 1:17: Expected rparen' }],
+    };
+    expect(computeHealthIssues(snapshot, TODAY)).toEqual([
+      { kind: 'unreadable_file', id: '/test/broken.cnj', label: 'broken.cnj', detail: 'Parse error at 1:17: Expected rparen' },
+    ]);
   });
 });

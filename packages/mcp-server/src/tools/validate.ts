@@ -5,7 +5,7 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { dirname, resolve as resolvePath } from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { parse, toCnjModel, describeCnjModelError, validateCnj, collectSymbolRefs } from '@conjurer/core';
+import { parse, toCnjModel, describeCnjModelError, validateCnj, collectSymbolRefs, isCnjFileReference } from '@conjurer/core';
 import type { ValidationMode, SymbolIndex, EdnNode, CnjDocument } from '@conjurer/core';
 import { isErr, isDefined } from '@tsfpp/prelude';
 
@@ -30,7 +30,7 @@ export type ValidateContext = {
  */
 const loadReferencedDocs = (filePath: string, references: ReadonlyArray<string>): ReadonlyArray<CnjDocument> =>
   references
-    .filter((ref) => ref.endsWith('.cnj') && !/^https?:\/\//.test(ref))
+    .filter(isCnjFileReference)
     .map((ref) => resolvePath(dirname(filePath), ref))
     .filter((path) => existsSync(path))
     .flatMap((path): ReadonlyArray<CnjDocument> => {

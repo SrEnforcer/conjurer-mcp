@@ -127,6 +127,7 @@ export const handleResolve = (
     plan,
     dependency_graph: graphOut,
     unresolved,
+    unreadable_files: snapshot.unreadableFiles,
     cycle_detected: snapshot.cycleDetected,
   }, null, 2));
 };
@@ -158,8 +159,11 @@ export const handleEvaluate = (
   const allFilePaths = Array.from(snapshot.files.keys());
   const cacheKey = computeContextKey(snapshot, allFilePaths);
   const prior = evaluateCache.get(abs);
+  // The key covers only files that were read; with an unreadable file the inputs are not
+  // fully known, so evaluate never reports a hit and names each such file as stale.
+  const unreadableStale = snapshot.unreadableFiles.map((u) => ({ form_name: u.path, reason: `unreadable: ${u.reason}` }));
 
-  if (prior === cacheKey) {
+  if (prior === cacheKey && unreadableStale.length === 0) {
     return toContent(JSON.stringify({
       cache_hit: true,
       cache_key: cacheKey,
@@ -170,9 +174,12 @@ export const handleEvaluate = (
     }, null, 2));
   }
 
-  const stale = prior !== undefined
-    ? [{ form_name: filePath, reason: 'workspace context changed since last evaluate' }]
-    : [];
+  const stale = [
+    ...(prior !== undefined && prior !== cacheKey
+      ? [{ form_name: filePath, reason: 'workspace context changed since last evaluate' }]
+      : []),
+    ...unreadableStale,
+  ];
 
   evaluateCache.set(abs, cacheKey);
 
@@ -294,6 +301,7 @@ export const handleMaterialisePlan = (filePath: string): ToolContent => {
     total_steps: tasks.length,
     cycle_detected: snapshot.cycleDetected,
     unresolved,
+    unreadable_files: snapshot.unreadableFiles,
   }, null, 2));
 };
 

@@ -160,7 +160,7 @@ export const handleListCandidates = (
 
   return toContent(
     JSON.stringify(
-      { total_candidates: filtered.length, total_files_scanned: snapshot.files.size, clusters },
+      { total_candidates: filtered.length, total_files_scanned: snapshot.files.size, unreadable_files: snapshot.unreadableFiles, clusters },
       null,
       2,
     ),
@@ -201,6 +201,7 @@ export const handleHoistReadiness = (file: string, minScore: number = 28, today:
     candidates_above_threshold: candidates.length,
     total_active: active.length,
     total_files_scanned: snapshot.files.size,
+    unreadable_files: snapshot.unreadableFiles,
     median_total_score: medianTotalScore(active),
     candidates_with_reassessment: active.filter((c) => c.history.length > 0).length,
     candidates,
@@ -243,11 +244,13 @@ export const handleForesightHealth = (
   const hoists = allHoists(snapshot);
   const report = computeForesightHealth(candidates, hoists, config);
   return toContent(JSON.stringify({
-    consistent: report.issue_count === 0,
+    // A file that could not be read had its candidates go unchecked, so the backlog is not known to be consistent.
+    consistent: report.issue_count === 0 && snapshot.unreadableFiles.length === 0,
     ...report,
     total_candidates_scanned: candidates.length,
     total_hoists_scanned: hoists.length,
     total_files_scanned: snapshot.files.size,
+    unreadable_files: snapshot.unreadableFiles,
   }, null, 2));
 };
 

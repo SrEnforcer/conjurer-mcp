@@ -256,6 +256,7 @@ export const handleTraceSymbol = (ctx: RetrievalContext, symbol: string, filePat
     symbol,
     known_symbol: knownSymbol,
     total_files_scanned: snapshot.files.size,
+    unreadable_files: snapshot.unreadableFiles,
     files_with_reference: filesWithReference,
     spec_available: ctx.index.symbols.size > 0,
     scope: {
