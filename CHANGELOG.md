@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/SrEnforcer/conjurer-mcp/compare/v0.2.0...v0.3.0) (2026-10-14)
+
+
+### Features
+
+* **extension:** fold abandoned candidates as well as hoisted ones ([17e9f8c](https://github.com/SrEnforcer/conjurer-mcp/commit/17e9f8c83861800ecfcbdd6827bb95b3e25717e7))
+
 ## [0.2.0](https://github.com/SrEnforcer/conjurer-mcp/compare/v0.1.4...v0.2.0) (2026-10-14)
 
 
