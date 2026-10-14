@@ -246,6 +246,53 @@ describe('parse — ratios', () => {
   });
 });
 
+describe('parse — numbers that have no finite value', () => {
+  const errorOf = (src: string): string => {
+    const r = parse(src);
+    return isErr(r) ? `${r.error.line}:${r.error.column} ${r.error.message}` : 'parsed';
+  };
+
+  it('rejects a ratio with a zero denominator, at the token', () => {
+    expect(errorOf('[1 1/0]')).toBe("1:4 Ratio '1/0' divides by zero");
+    expect(errorOf('-1/0')).toBe("1:1 Ratio '-1/0' divides by zero");
+    expect(errorOf('0/0')).toBe("1:1 Ratio '0/0' divides by zero");
+  });
+
+  it('rejects an integer past the double range instead of reading Infinity', () => {
+    expect(errorOf('9'.repeat(400))).toBe(`1:1 Number '${'9'.repeat(24)}…' is out of range`);
+  });
+
+  it('rejects a ratio whose denominator is past the double range', () => {
+    expect(errorOf(`1/${'9'.repeat(400)}`)).toMatch(/^1:1 Number '1\/9+…' is out of range$/);
+  });
+
+  it('reads every ratio with a non-zero denominator as its finite quotient', () => {
+    fc.assert(
+      fc.property(fc.integer(), fc.integer({ min: 1, max: 1_000_000 }), (num, den) => {
+        const r = parse(`${num}/${den}`);
+        const node = isOk(r) ? r.value[0] : undefined;
+        expect(node?.type === 'number' ? node.value : 'missing').toBe(num / den);
+      }),
+    );
+  });
+
+  it('never yields NaN or Infinity for any number the lexer admits', () => {
+    // Short and past-the-double-range digit runs, and zero denominators, each come up often.
+    const digits = (minLength: number, maxLength: number): fc.Arbitrary<string> =>
+      fc.string({ unit: fc.constantFrom(...'0123456789'), minLength, maxLength });
+    const run = fc.oneof(digits(1, 5), digits(309, 400));
+    const tail = fc.oneof(fc.constant(''), run.map((d) => `.${d}`), fc.oneof(fc.constant('0'), run).map((d) => `/${d}`));
+    const numberText = fc.tuple(fc.boolean(), run, tail).map(([neg, whole, rest]) => `${neg ? '-' : ''}${whole}${rest}`);
+    fc.assert(
+      fc.property(numberText, (src) => {
+        const r = parse(src);
+        const node = isOk(r) ? r.value[0] : undefined;
+        expect(node === undefined || (node.type === 'number' && Number.isFinite(node.value))).toBe(true);
+      }),
+    );
+  });
+});
+
 describe('parse — dots in keywords and symbols', () => {
   it('keeps a dot inside a keyword or symbol', () => {
     const r = parse('{:body :die.ivory :pips :die.pip-on-light} java.util.Date');
