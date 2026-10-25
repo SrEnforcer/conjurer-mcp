@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
-import { ok, err, isErr, intoMap, sortWith, ordString, absurd } from '@tsfpp/prelude';
+import { ok, err, isErr, intoMap, sortWith, ordString, absurd, tryCatch } from '@tsfpp/prelude';
 import type { Result } from '@tsfpp/prelude';
 import { parse } from './edn-parser.js';
 import type { ParseError } from './edn-parser.js';
 import { toCnjModel, describeCnjModelError } from './cnj-model.js';
 import type { CnjDocument, CnjModelError } from './cnj-model.js';
 import { bindingNames } from './references.js';
+import { describeThrown } from './thrown.js';
 
 export type ParsedFileEntry = {
   readonly path: string;
@@ -42,6 +43,7 @@ export type WorkspaceSnapshot = {
 /** Why one `.cnj` file could not be read into a document. */
 export type CnjFileError =
   | { readonly kind: 'file_not_found'; readonly path: string }
+  | { readonly kind: 'file_unreadable'; readonly path: string; readonly reason: string }
   | { readonly kind: 'file_unparseable'; readonly path: string; readonly cause: ParseError }
   | { readonly kind: 'file_unmodelable'; readonly path: string; readonly cause: CnjModelError };
 
@@ -54,6 +56,7 @@ export type CnjFileError =
 export const describeCnjFileError = (e: CnjFileError): string => {
   switch (e.kind) {
     case 'file_not_found': return `File not found: ${e.path}`;
+    case 'file_unreadable': return `Unreadable: ${e.path}: ${e.reason}`;
     case 'file_unparseable': return `Parse error in ${e.path}: ${e.cause.message}`;
     case 'file_unmodelable': return `Model error in ${e.path}: ${describeCnjModelError(e.cause)}`;
     default: return absurd(e);
@@ -70,6 +73,7 @@ export const describeCnjFileError = (e: CnjFileError): string => {
 export const describeCnjFileReason = (e: CnjFileError): string => {
   switch (e.kind) {
     case 'file_not_found': return 'File not found';
+    case 'file_unreadable': return `Unreadable: ${e.reason}`;
     case 'file_unparseable': return `Parse error at ${e.cause.line}:${e.cause.column}: ${e.cause.message}`;
     case 'file_unmodelable': return `Model error: ${describeCnjModelError(e.cause)}`;
     default: return absurd(e);
@@ -105,9 +109,25 @@ export const describeWorkspaceError = (e: WorkspaceError): string => {
 export const isCnjFileReference = (ref: string): boolean =>
   ref.endsWith('.cnj') && !/^[a-z][a-z0-9+.-]*:\/\//i.test(ref);
 
-const parseEntry = (filePath: string): Result<ParsedFileEntry, CnjFileError> => {
+/**
+ * Read a `.cnj` file's text. A path that exists but cannot be read, such as a directory,
+ * is an error value rather than an exception.
+ *
+ * @param filePath - The file to read.
+ * @returns Its text, or why it could not be read.
+ */
+export const readCnjText = (filePath: string): Result<string, CnjFileError> => {
   if (!existsSync(filePath)) return err({ kind: 'file_not_found', path: filePath });
-  const content = readFileSync(filePath, 'utf8');
+  return tryCatch(
+    () => readFileSync(filePath, 'utf8'),
+    (e): CnjFileError => ({ kind: 'file_unreadable', path: filePath, reason: describeThrown(e) }),
+  );
+};
+
+const parseEntry = (filePath: string): Result<ParsedFileEntry, CnjFileError> => {
+  const text = readCnjText(filePath);
+  if (isErr(text)) return err(text.error);
+  const content = text.value;
   const parsed = parse(content);
   if (isErr(parsed)) return err({ kind: 'file_unparseable', path: filePath, cause: parsed.error });
   const doc = toCnjModel(parsed.value, filePath);
@@ -123,25 +143,31 @@ const parseEntry = (filePath: string): Result<ParsedFileEntry, CnjFileError> => 
 type Discovery = {
   readonly visited: ReadonlyMap<string, ParsedFileEntry>;
   readonly unreadable: ReadonlyArray<UnreadableFile>;
-  readonly queue: ReadonlyArray<string>;
 };
-
-const isSeen = (d: Discovery, path: string): boolean =>
-  d.visited.has(path) || d.unreadable.some((u) => u.path === path);
 
 // Breadth-first over charter :references, transitively. A file that cannot be read is
 // recorded with its reason, once, and its own references stay unknown.
-const discoverStep = (d: Discovery): Discovery => {
-  const [next, ...rest] = d.queue;
-  if (next === undefined) return d;
-  if (isSeen(d, next)) return discoverStep({ ...d, queue: rest });
-  const entry = parseEntry(next);
-  if (isErr(entry)) {
-    return discoverStep({ ...d, unreadable: [...d.unreadable, { path: next, reason: describeCnjFileReason(entry.error) }], queue: rest });
+const discover = (entryPath: string, entry: ParsedFileEntry): Discovery => {
+  /* eslint-disable functional/no-let, functional/no-loop-statements, functional/prefer-readonly-type, functional/immutable-data, no-restricted-syntax -- DEVIATION(4.2): no tail-call elimination in JS; a loop over a local queue keeps stack depth constant in the number of files. DEVIATION(1.9): local Map and Set, never returned mutable. */
+  const visited = new Map<string, ParsedFileEntry>([[entryPath, entry]]);
+  const unreadable: UnreadableFile[] = [];
+  const failed = new Set<string>();
+  const isSeen = (path: string): boolean => visited.has(path) || failed.has(path);
+  const queue: string[] = [...entry.directRefs];
+  for (let head = 0; head < queue.length; head += 1) {
+    const next = queue[head] ?? '';
+    if (isSeen(next)) continue;
+    const parsed = parseEntry(next);
+    if (isErr(parsed)) {
+      failed.add(next);
+      unreadable.push({ path: next, reason: describeCnjFileReason(parsed.error) });
+      continue;
+    }
+    visited.set(next, parsed.value);
+    queue.push(...parsed.value.directRefs.filter((ref) => !isSeen(ref)));
   }
-  const visited = intoMap([...d.visited.entries(), [next, entry.value] as const]);
-  const found = { ...d, visited };
-  return discoverStep({ ...found, queue: [...rest, ...entry.value.directRefs.filter((ref) => !isSeen(found, ref))] });
+  /* eslint-enable functional/no-let, functional/no-loop-statements, functional/prefer-readonly-type, functional/immutable-data, no-restricted-syntax */
+  return { visited, unreadable };
 };
 
 // A later target with the same name replaces an earlier one, as Map construction does.
@@ -151,38 +177,44 @@ const buildTargetEdges = (
   intoMap(Array.from(files.values()).flatMap((entry) =>
     entry.doc.targets.map((target) => [target.name, target.from !== undefined ? [target.from] : []] as const)));
 
-type TopoState = {
+type TopoResult = {
   readonly sorted: ReadonlyArray<string>;
-  readonly visiting: ReadonlyArray<string>;
-  readonly visited: ReadonlyArray<string>;
   readonly cycleDetected: boolean;
 };
 
-const visitTarget = (
-  name: string,
-  edges: ReadonlyMap<string, ReadonlyArray<string>>,
-  state: TopoState,
-): TopoState => {
-  if (state.visiting.includes(name)) return { ...state, cycleDetected: true };
-  if (state.visited.includes(name)) return state;
-
-  const deps = edges.get(name) ?? [];
-  const withVisiting: TopoState = {
-    ...state,
-    visiting: [...state.visiting, name],
+// Depth-first over :from edges from each root in turn, dependencies before dependents.
+// A dependency met again while it is still being visited is a cycle.
+const topoSort = (roots: ReadonlyArray<string>, edges: ReadonlyMap<string, ReadonlyArray<string>>): TopoResult => {
+  /* eslint-disable functional/no-let, functional/no-loop-statements, functional/prefer-readonly-type, functional/immutable-data, no-restricted-syntax -- DEVIATION(4.2): no tail-call elimination in JS; an explicit stack keeps call depth constant however long a :from chain is. DEVIATION(1.9): local Sets, never returned. */
+  const sorted: string[] = [];
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const stack: Array<{ readonly name: string; next: number }> = [];
+  let cycleDetected = false;
+  const enter = (name: string): void => {
+    if (visiting.has(name)) cycleDetected = true;
+    else if (!visited.has(name)) {
+      visiting.add(name);
+      stack.push({ name, next: 0 });
+    }
   };
-
-  const afterDeps = deps.reduce<TopoState>(
-    (s, dep) => visitTarget(dep, edges, s),
-    withVisiting,
-  );
-
-  return {
-    sorted: [...afterDeps.sorted, name],
-    visiting: afterDeps.visiting.filter((v) => v !== name),
-    visited: [...afterDeps.visited, name],
-    cycleDetected: afterDeps.cycleDetected,
-  };
+  for (const root of roots) {
+    enter(root);
+    while (stack.length > 0) {
+      const top = stack[stack.length - 1] ?? { name: '', next: 0 };
+      const dep = (edges.get(top.name) ?? [])[top.next];
+      top.next += 1;
+      if (dep !== undefined) enter(dep);
+      else {
+        stack.pop();
+        visiting.delete(top.name);
+        visited.add(top.name);
+        sorted.push(top.name);
+      }
+    }
+  }
+  /* eslint-enable functional/no-let, functional/no-loop-statements, functional/prefer-readonly-type, functional/immutable-data, no-restricted-syntax */
+  return { sorted, cycleDetected };
 };
 
 export const topoOrder = (
@@ -191,18 +223,7 @@ export const topoOrder = (
 ): ReadonlyArray<string> => {
   const entry = snapshot.files.get(resolve(entryFile));
   if (entry === undefined) return [];
-  const targetNames = entry.doc.targets.map((t) => t.name);
-  const initial: TopoState = {
-    sorted: [],
-    visiting: [],
-    visited: [],
-    cycleDetected: false,
-  };
-  const result = targetNames.reduce<TopoState>(
-    (s, name) => visitTarget(name, snapshot.targetEdges, s),
-    initial,
-  );
-  return result.sorted;
+  return topoSort(entry.doc.targets.map((t) => t.name), snapshot.targetEdges).sorted;
 };
 
 export const computeContextKey = (
@@ -219,7 +240,7 @@ export const buildWorkspaceSnapshot = (entryFile: string): Result<WorkspaceSnaps
   const entryPath = resolve(entryFile);
   const entry = parseEntry(entryPath);
   if (isErr(entry)) return err({ kind: 'entry_unparseable', path: entryFile, cause: entry.error });
-  const discovered = discoverStep({ visited: intoMap([[entryPath, entry.value]]), unreadable: [], queue: entry.value.directRefs });
+  const discovered = discover(entryPath, entry.value);
   const files = discovered.visited;
   const declaredFroms = buildTargetEdges(files);
   const targetNames = Array.from(declaredFroms.keys());
@@ -233,17 +254,7 @@ export const buildWorkspaceSnapshot = (entryFile: string): Result<WorkspaceSnaps
       .filter((dep) => !targetNames.includes(dep) && !bindings.includes(dep))
       .map((dependency) => ({ target, dependency })));
 
-  const initial: TopoState = {
-    sorted: [],
-    visiting: [],
-    visited: [],
-    cycleDetected: false,
-  };
-  const allTargets = Array.from(targetEdges.keys());
-  const topoResult = allTargets.reduce<TopoState>(
-    (s, name) => visitTarget(name, targetEdges, s),
-    initial,
-  );
+  const topoResult = topoSort(Array.from(targetEdges.keys()), targetEdges);
 
   return ok({
     files, unreadableFiles: discovered.unreadable, targetEdges, bindingDeps, unresolvedDeps, cycleDetected: topoResult.cycleDetected,

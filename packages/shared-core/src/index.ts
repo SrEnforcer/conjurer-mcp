@@ -57,7 +57,9 @@ export { runMaterialisePreflight, describePreflightError } from './preflight-res
 export type { ParsedFileEntry, WorkspaceSnapshot, UnresolvedDependency, CnjFileError, WorkspaceError } from './workspace-state.js';
 export {
   buildWorkspaceSnapshot, topoOrder, computeContextKey, isCnjFileReference, describeCnjFileError, describeCnjFileReason, describeWorkspaceError,
+  readCnjText,
 } from './workspace-state.js';
+export { describeThrown } from './thrown.js';
 export type { ReferenceKind, FormReference, ReferenceSite } from './references.js';
 export { parseReference, bareName, declaredNames, bindingNames, referenceSites } from './references.js';
 export type {
