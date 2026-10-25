@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.1](https://github.com/SrEnforcer/conjurer-mcp/compare/v0.4.0...v0.4.1) (2026-10-25)
+
+
+### Bug Fixes
+
+* **core:** keep lexer and parser stack depth constant ([3c6e4c0](https://github.com/SrEnforcer/conjurer-mcp/commit/3c6e4c0693b2991fe3425828f666ded81f8ca9c2))
+* keep lexer and parser stack depth constant ([2844794](https://github.com/SrEnforcer/conjurer-mcp/commit/28447943e750934aa822bc639782de2c79b44717))
+* **mcp-server:** report parse failures of referenced files ([8ad16e8](https://github.com/SrEnforcer/conjurer-mcp/commit/8ad16e82d85e33a9378ea319880923a0ada6aab0))
+
 ## [0.4.0](https://github.com/SrEnforcer/conjurer-mcp/compare/v0.3.0...v0.4.0) (2026-10-14)
 
 
