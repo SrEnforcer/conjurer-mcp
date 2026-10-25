@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resolve } from 'node:path';
@@ -142,5 +142,79 @@ describe('isCnjFileReference', () => {
     expect(['a.cnj', '../x/b.cnj', '/abs/c.cnj'].every(isCnjFileReference)).toBe(true);
     expect(['https://example.com/a.cnj', 'file:///a.cnj', 'README.md', 'src/index.ts', 'https://www.npmjs.com/package/@tsfpp/standard']
       .some(isCnjFileReference)).toBe(false);
+  });
+});
+
+describe('buildWorkspaceSnapshot — scale and unreadable paths', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cnj-ws-scale-'));
+  const many = join(dir, 'many.cnj');
+  const chain = join(dir, 'chain.cnj');
+  const withDir = join(dir, 'with-dir.cnj');
+  const CHAIN = 10_000;
+
+  beforeAll(() => {
+    const refs = Array.from({ length: 30_000 }, (_, i) => `"missing-${i}.cnj"`).join(' ');
+    writeFileSync(many, `(charter "M" :version "1.0.0" :goals ["g"] :references [${refs}])`);
+    const targets = Array.from({ length: CHAIN }, (_, i) =>
+      (i === 0 ? '(target t0 :language "ts")' : `(target t${i} :language "ts" :from t${i - 1})`)).join('\n');
+    writeFileSync(chain, `(charter "C" :version "1.0.0" :goals ["g"])\n${targets}`);
+    mkdirSync(join(dir, 'folder.cnj'));
+    writeFileSync(withDir, '(charter "D" :version "1.0.0" :goals ["g"] :references ["folder.cnj"])');
+  });
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('follows 30,000 references', () => {
+    const r = buildWorkspaceSnapshot(many);
+    if (!isOk(r)) return expect.unreachable('expected a snapshot');
+    expect(r.value.unreadableFiles.length).toBe(30_000);
+    expect(r.value.unreadableFiles[29_999]).toEqual({ path: join(dir, 'missing-29999.cnj'), reason: 'File not found' });
+  });
+
+  it('orders a :from chain of 10,000 targets', () => {
+    const r = buildWorkspaceSnapshot(chain);
+    if (!isOk(r)) return expect.unreachable('expected a snapshot');
+    expect(r.value.cycleDetected).toBe(false);
+    expect(topoOrder(r.value, chain)).toEqual(Array.from({ length: CHAIN }, (_, i) => `t${i}`));
+  });
+
+  it('reports a reference that is a directory as unreadable instead of throwing', () => {
+    const r = buildWorkspaceSnapshot(withDir);
+    if (!isOk(r)) return expect.unreachable('expected a snapshot');
+    expect(r.value.unreadableFiles.map((u) => u.path)).toEqual([join(dir, 'folder.cnj')]);
+    expect(r.value.unreadableFiles[0]?.reason).toMatch(/^Unreadable: .*EISDIR/);
+  });
+});
+
+describe('topoOrder — order and cycles', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cnj-ws-topo-'));
+  const cyc = join(dir, 'cyc.cnj');
+  const dag = join(dir, 'dag.cnj');
+  const t = (name: string, from?: string): string => `(target ${name} :language "ts"${from !== undefined ? ` :from ${from}` : ''})`;
+
+  beforeAll(() => {
+    const charter = '(charter "X" :version "1.0.0" :goals ["g"])';
+    writeFileSync(cyc, [charter, t('a', 'b'), t('d', 'b'), t('b', 'c'), t('c', 'a'), t('e', 'd'), t('f')].join('\n'));
+    writeFileSync(dag, [charter, t('app', 'ui'), t('ui', 'core'), t('api', 'core'), t('core')].join('\n'));
+  });
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('puts dependencies first, in declaration order otherwise', () => {
+    const r = buildWorkspaceSnapshot(dag);
+    if (!isOk(r)) return expect.unreachable('expected a snapshot');
+    expect(r.value.cycleDetected).toBe(false);
+    expect(topoOrder(r.value, dag)).toEqual(['core', 'ui', 'app', 'api']);
+  });
+
+  it('flags a cycle and still lists every target once', () => {
+    const r = buildWorkspaceSnapshot(cyc);
+    if (!isOk(r)) return expect.unreachable('expected a snapshot');
+    expect(r.value.cycleDetected).toBe(true);
+    expect(topoOrder(r.value, cyc)).toEqual(['c', 'b', 'a', 'd', 'e', 'f']);
   });
 });
