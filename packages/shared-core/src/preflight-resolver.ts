@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { ok, err, isErr, isSome, fromNullable, absurd, mapErr, match } from '@tsfpp/prelude';
 import type { Result } from '@tsfpp/prelude';
@@ -6,7 +6,7 @@ import { parse } from './edn-parser.js';
 import { toCnjModel } from './cnj-model.js';
 import type { CnjDocument, CnjTarget, CnjModelError } from './cnj-model.js';
 import { bindingNames } from './references.js';
-import { describeCnjFileReason } from './workspace-state.js';
+import { describeCnjFileReason, readCnjText } from './workspace-state.js';
 import type { CnjFileError, UnreadableFile } from './workspace-state.js';
 
 export type { UnreadableFile } from './workspace-state.js';
@@ -55,9 +55,9 @@ export const describePreflightError = (e: PreflightError): string => {
 };
 
 const parseCnjFile = (filePath: string): Result<CnjDocument, CnjFileError> => {
-  if (!existsSync(filePath)) return err({ kind: 'file_not_found', path: filePath });
-  const content = readFileSync(filePath, 'utf8');
-  const parsed = parse(content);
+  const content = readCnjText(filePath);
+  if (isErr(content)) return err(content.error);
+  const parsed = parse(content.value);
   if (isErr(parsed)) return err({ kind: 'file_unparseable', path: filePath, cause: parsed.error });
   return mapErr<CnjDocument, CnjModelError, CnjFileError>((cause) => ({ kind: 'file_unmodelable', path: filePath, cause }))(
     toCnjModel(parsed.value, filePath),

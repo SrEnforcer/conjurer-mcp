@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { parse, findEnsureSites, checkPredicate, fromJson, EMPTY_PRELUDE } from '@conjurer/core';
 import type { SymbolIndex, EnsureSite, JsonValue, PredicateOutcome } from '@conjurer/core';
 import { isErr, intoMap } from '@tsfpp/prelude';
+import { guarded } from './guard.js';
 
 type ToolContent = ReadonlyArray<{ readonly type: 'text'; readonly text: string }>;
 
@@ -112,7 +113,7 @@ export const registerPostconditionTools = (server: McpServer, ctx?: Postconditio
       : file !== undefined ? { kind: 'file', path: file, ...(form !== undefined ? { form } : {}) } : undefined;
     const content = source === undefined
       ? toContent('Provide either edn or file')
-      : handleCheckPostconditions(source, values, ctx?.index);
+      : guarded(file ?? 'inline EDN', () => handleCheckPostconditions(source, values, ctx?.index));
     return { content: [...content] };
   });
 };

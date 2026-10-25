@@ -15,6 +15,7 @@ import {
 } from '@conjurer/core';
 import type { EdnNode } from '@conjurer/core';
 import { isErr, fromNullable, getOrElseOption, isSome } from '@tsfpp/prelude';
+import { guarded } from './guard.js';
 
 type ToolContent = ReadonlyArray<{ readonly type: 'text'; readonly text: string }>;
 
@@ -314,7 +315,7 @@ export const registerProjectTools = (server: McpServer): void => {
       form_type: z.string().optional(),
       form_name: z.string().optional(),
     },
-  }, ({ content, file, form_name }) => ({ content: [...handleResolve(file, content, form_name)] }));
+  }, ({ content, file, form_name }) => ({ content: [...guarded(file ?? 'inline content', () => handleResolve(file, content, form_name))] }));
 
   server.registerTool('evaluate', {
     description: 'Evaluate a workspace with fingerprint-keyed cache; returns cache-hit or stale diagnostics. Cache is process-local — not shared across concurrent server instances.',
@@ -323,12 +324,12 @@ export const registerProjectTools = (server: McpServer): void => {
       resolve_id: z.string().optional(),
       mode: z.enum(['deterministic', 'incremental']).optional(),
     },
-  }, ({ file, resolve_id, mode }) => ({ content: [...handleEvaluate(file, resolve_id, mode)] }));
+  }, ({ file, resolve_id, mode }) => ({ content: [...guarded(file ?? 'inline content', () => handleEvaluate(file, resolve_id, mode))] }));
 
   server.registerTool('project_lint_topology', {
     description: 'Report cross-file dependency/topology issues',
     inputSchema: { workspace: z.string().optional() },
-  }, ({ workspace }) => ({ content: [...handleLintTopology(workspace)] }));
+  }, ({ workspace }) => ({ content: [...guarded(workspace ?? 'the workspace', () => handleLintTopology(workspace))] }));
 
   server.registerTool('materialise_preflight', {
     description: 'Preflight a .cnj folder before materialisation',
@@ -337,10 +338,10 @@ export const registerProjectTools = (server: McpServer): void => {
       project_name: z.string().optional(),
       entry_files: z.array(z.string()).optional(),
     },
-  }, ({ folder, project_name, entry_files }) => ({ content: [...handlePreflight(folder, project_name, entry_files)] }));
+  }, ({ folder, project_name, entry_files }) => ({ content: [...guarded(folder, () => handlePreflight(folder, project_name, entry_files))] }));
 
   server.registerTool('materialise_plan', {
     description: 'Given a workspace entry .cnj, emit a fully sequenced dependency-ordered task list: each step\'s target, file, depends_on, modules, and produces. Bridges preflight (what needs doing) to execution (in what order). Fully deterministic.',
     inputSchema: { file: z.string() },
-  }, ({ file }) => ({ content: [...handleMaterialisePlan(file)] }));
+  }, ({ file }) => ({ content: [...guarded(file, () => handleMaterialisePlan(file))] }));
 };

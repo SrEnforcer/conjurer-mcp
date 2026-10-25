@@ -9,7 +9,7 @@
 (charter "Conjurer MCP Server"
   :version  "0.2.0"
   :created  "2026-06-05"
-  :updated  "2026-10-14"
+  :updated  "2026-10-25"
   :domain   "A deterministic stdio MCP server exposing retrieval, parsing, and
              validation tools over the Conjurer specification, built on a shared
              TypeScript core."
@@ -403,7 +403,22 @@
                 rule is pure and lives in its own module, charter-freshness.ts, so
                 validation.ts stays under the TSF++ ceiling; Charter gains an updated field.
                 Run over design/ as it stood on main, it flagged all three charters whose
-                :updated had fallen behind, and none after they were brought current."}]
+                :updated had fallen behind, and none after they were brought current."}
+    {:id       :constant-stack-depth
+     :date     "2026-10-25"
+     :decision "Iteration over input size uses loops, not recursion: JavaScript has no
+                tail-call elimination, so a recursion per character, token, collection
+                element, top-level form or referenced file overflowed the stack. An
+                7,100-character :notes string made validate_cnj throw RangeError on that
+                file and on every file whose charter :references named it. The lexer is one
+                pass over indices; parser collections, cnj-model forms and keyword pairs,
+                reference discovery and the topological sort iterate. The loops live in
+                iteration.ts (scan, unfold) and two workspace-state functions, each marked
+                DEVIATION(4.2); recursion bounded by EDN nesting depth stays. validate_cnj
+                adds reference-parses (warning): a referenced .cnj that exists but cannot be
+                read or parsed is a finding on that reference, not a failure of the file
+                being validated. Every tool handler that reads user input runs through
+                guarded, which turns an unexpected exception into a result naming the file."}]
   :open []
   :decided [
     "conjurer://grimoire/<name> MCP resources: yes (2026-06-09 decision above)."]
@@ -625,6 +640,7 @@
                 "decisions log is append-only-shaped (each entry has :date :decision)"
                 "referenced symbols exist in index.edn"
                 "every :references target resolves to a readable file"
+                "(warning) every referenced .cnj that exists also reads and parses (reference-parses)"
                 "intent topology (on forms that carry :requires/:prefers/:deferred/:forbids):
                  no item is both :requires and :forbids, no item is both :requires and
                  :deferred, and (warning) no item is both :prefers and :forbids.

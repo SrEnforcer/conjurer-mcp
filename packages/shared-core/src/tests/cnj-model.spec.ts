@@ -311,3 +311,24 @@ describe('toCnjModel — f/hoist (CnjHoist)', () => {
     expect(r.value.hoists[1]?.of).toBe('beta');
   });
 });
+
+describe('toCnjModel — wide documents', () => {
+  it('models 50,000 top-level forms', () => {
+    const src = Array.from({ length: 50_000 }, (_, i) => `(target t${i} :language "ts")`).join('\n');
+    const ast = parse(src);
+    if (!isOk(ast)) return expect.unreachable('expected a parse');
+    const doc = toCnjModel(ast.value, 'wide.cnj');
+    if (!isOk(doc)) return expect.unreachable('expected a document');
+    expect(doc.value.targets.length).toBe(50_000);
+    expect(doc.value.targets[49_999]?.name).toBe('t49999');
+  });
+
+  it('reads a form with 50,000 keyword pairs', () => {
+    const pairs = Array.from({ length: 50_000 }, (_, i) => `:k${i} ${i}`).join(' ');
+    const ast = parse(`(target wide :language "ts" ${pairs} :from base)`);
+    if (!isOk(ast)) return expect.unreachable('expected a parse');
+    const doc = toCnjModel(ast.value, 'wide.cnj');
+    if (!isOk(doc)) return expect.unreachable('expected a document');
+    expect(doc.value.targets[0]?.from).toBe('base');
+  });
+});

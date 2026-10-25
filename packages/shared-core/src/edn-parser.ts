@@ -1,5 +1,7 @@
 import { ok, err, isErr, intoMap, isFiniteNumber } from '@tsfpp/prelude';
 import type { Result } from '@tsfpp/prelude';
+import { scan, unfold } from './iteration.js';
+import type { Step, Unfolded } from './iteration.js';
 
 export type TokenType =
   | 'lparen' | 'rparen'
@@ -47,114 +49,121 @@ export type EdnNil     = { readonly type: 'nil'; readonly line: number; readonly
 export type EdnNode = EdnList | EdnMap | EdnKeyword | EdnSymbol | EdnString | EdnNumber | EdnBoolean | EdnNil;
 
 // ── Lexer ─────────────────────────────────────────────────────────────────────
+//
+// One pass over the input: each token's extent is found by a `scan` loop over indices, so
+// stack depth stays constant however long a string, comment or whitespace run is. A token's
+// value is always its verbatim source text.
 
-type LS = { readonly input: string; readonly position: number; readonly line: number; readonly column: number };
-type LR = { readonly token: Token; readonly next: LS };
+type Pos = { readonly offset: number; readonly line: number; readonly column: number };
 
 const mkErr = (message: string, line: number, column: number): ParseError => ({ kind: 'ParseError', message, line, column });
-const curC = (s: LS): string => s.input[s.position] ?? '\0';
-const peekC = (s: LS, off = 1): string => s.input[s.position + off] ?? '\0';
-const advL = (s: LS): LS => {
-  const c = curC(s);
-  return { input: s.input, position: s.position + 1, line: c === '\n' ? s.line + 1 : s.line, column: c === '\n' ? 1 : s.column + 1 };
-};
-const skipWS = (s: LS): LS => {
-  if (s.position >= s.input.length) return s;
-  const c = curC(s);
-  if (c === ' ' || c === '\t' || c === '\n' || c === '\r') return skipWS(advL(s));
-  if (c !== ';') return s;
-  const skipLine = (t: LS): LS => (t.position >= t.input.length || curC(t) === '\n' ? t : skipLine(advL(t)));
-  return skipWS(skipLine(advL(s)));
+
+/** The position at `to`, counting a line per `\n` in the text passed over. */
+const advanceTo = (input: string, pos: Pos, to: number): Pos => {
+  const passed = input.slice(pos.offset, to);
+  const lastNl = passed.lastIndexOf('\n');
+  if (lastNl < 0) return { offset: to, line: pos.line, column: pos.column + passed.length };
+  return { offset: to, line: pos.line + passed.split('\n').length - 1, column: passed.length - lastNl };
 };
 
+const isWS = (c: string): boolean => c === ' ' || c === '\t' || c === '\n' || c === '\r';
+const isDigit = (c: string): boolean => c >= '0' && c <= '9';
 const isSymS = (c: string): boolean => /^[a-zA-Z_\-+*/?!<>='~&]$/.test(c);
-const isSymC = (c: string): boolean => isSymS(c) || c === '.' || (c >= '0' && c <= '9');
-const isNumS = (s: LS): boolean => {
-  const c = curC(s);
-  return (c >= '0' && c <= '9') || (c === '-' && peekC(s) >= '0' && peekC(s) <= '9');
+const isSymC = (c: string): boolean => isSymS(c) || c === '.' || isDigit(c);
+
+/** End of the run of characters from `from` that satisfy `pred`. */
+const runEnd = (input: string, from: number, pred: (c: string) => boolean): number =>
+  scan(from, (i) => {
+    const c = input[i];
+    return c !== undefined && pred(c) ? i + 1 : undefined;
+  });
+
+/** End of the whitespace and `;` comments from `from`. */
+const gapEnd = (input: string, from: number): number =>
+  scan(from, (i) => {
+    const c = input[i];
+    if (c === undefined) return undefined;
+    if (isWS(c)) return i + 1;
+    if (c !== ';') return undefined;
+    const nl = input.indexOf('\n', i);
+    return nl < 0 ? input.length : nl;
+  });
+
+/** Index just past the closing quote of the string opened at `from`, or undefined when it never closes. */
+const stringEnd = (input: string, from: number): number | undefined => {
+  const close = scan(from + 1, (i) => {
+    const c = input[i];
+    if (c === undefined || c === '"') return undefined;
+    return c === '\\' ? Math.min(i + 2, input.length) : i + 1;
+  });
+  return input[close] === '"' ? close + 1 : undefined;
 };
 
-const lexKw = (s: LS): Result<LR, ParseError> => {
-  const col = s.column;
-  const go = (t: LS, a: string): LR =>
-    isSymC(curC(t)) ? go(advL(t), a + curC(t)) : { token: { type: 'keyword', value: a, line: s.line, column: col }, next: t };
-  return ok(go(advL(s), ':'));
+/** `-?digits` with an optional `/digits` or `.digits`. */
+const numberEnd = (input: string, from: number): number => {
+  const whole = runEnd(input, input[from] === '-' ? from + 1 : from, isDigit);
+  const sep = input[whole];
+  return (sep === '/' || sep === '.') && isDigit(input[whole + 1] ?? '') ? runEnd(input, whole + 1, isDigit) : whole;
 };
 
-const lexStr = (s: LS): Result<LR, ParseError> => {
-  const col = s.column;
-  const go = (t: LS, a: string): Result<LR, ParseError> => {
-    if (t.position >= t.input.length) return err(mkErr('Unterminated string', s.line, col));
-    const c = curC(t);
-    if (c === '"') return ok({ token: { type: 'string', value: a + '"', line: s.line, column: col }, next: advL(t) });
-    if (c === '\\') {
-      const nt = advL(t);
-      return nt.position < nt.input.length ? go(advL(nt), a + '\\' + curC(nt)) : go(nt, a + '\\');
-    }
-    return go(advL(t), a + c);
-  };
-  return go(advL(s), '"');
-};
-
-const lexNum = (s: LS): Result<LR, ParseError> => {
-  const col = s.column;
-  const digits = (t: LS, a: string): LR =>
-    curC(t) >= '0' && curC(t) <= '9' ? digits(advL(t), a + curC(t)) : { token: { type: 'number', value: a, line: s.line, column: col }, next: t };
-  const neg = curC(s) === '-';
-  const w = digits(neg ? advL(s) : s, neg ? '-' : '');
-  if (curC(w.next) === '/' && peekC(w.next) >= '0' && peekC(w.next) <= '9') {
-    const d = digits(advL(w.next), w.token.value + '/');
-    return ok({ token: { type: 'number', value: d.token.value, line: s.line, column: col }, next: d.next });
-  }
-  if (curC(w.next) === '.' && peekC(w.next) >= '0' && peekC(w.next) <= '9') {
-    const f = digits(advL(w.next), w.token.value + '.');
-    return ok({ token: { type: 'number', value: f.token.value, line: s.line, column: col }, next: f.next });
-  }
-  return ok({ token: { type: 'number', value: w.token.value, line: s.line, column: col }, next: w.next });
-};
-
-const lexSym = (s: LS): Result<LR, ParseError> => {
-  const col = s.column;
-  const go = (t: LS, a: string): LR => {
-    if (isSymC(curC(t))) return go(advL(t), a + curC(t));
-    const type: TokenType = a === 'true' || a === 'false' ? 'boolean' : a === 'nil' ? 'nil' : 'symbol';
-    return { token: { type, value: a, line: s.line, column: col }, next: t };
-  };
-  return ok(go(s, ''));
+const isNumStart = (input: string, at: number): boolean => {
+  const c = input[at] ?? '';
+  return isDigit(c) || (c === '-' && isDigit(input[at + 1] ?? ''));
 };
 
 const BRACKETS: Record<string, TokenType> = {
   '(': 'lparen', ')': 'rparen', '[': 'lbracket', ']': 'rbracket', '{': 'lbrace', '}': 'rbrace',
 };
 
-const isNumOrNeg = (ns: LS, c: string): boolean =>
-  (c >= '0' && c <= '9') || (c === '-' && isNumS(ns));
+const tokenAt = (type: TokenType, pos: Pos, value: string): Token => ({ type, value, line: pos.line, column: pos.column });
 
-const lexNext = (ns: LS): Result<LR, ParseError> => {
-  const c = curC(ns);
-  const btype = BRACKETS[c];
-  if (btype !== undefined) return ok({ token: { type: btype, value: c, line: ns.line, column: ns.column }, next: advL(ns) });
-  if (c === '#' && peekC(ns) === '{') return ok({ token: { type: 'lset', value: '#{', line: ns.line, column: ns.column }, next: advL(advL(ns)) });
-  if (c === '|') {
-    return err(mkErr("Unexpected character '|': the bar is signature notation only; write a choice as (one-of ...)", ns.line, ns.column));
+const symbolType = (value: string): TokenType =>
+  value === 'true' || value === 'false' ? 'boolean' : value === 'nil' ? 'nil' : 'symbol';
+
+/** A keyword, string, number or symbol at `pos`. */
+const lexAtom = (input: string, pos: Pos): Result<Token, ParseError> => {
+  const at = pos.offset;
+  const c = input[at] ?? '\0';
+  if (c === ':') return ok(tokenAt('keyword', pos, input.slice(at, runEnd(input, at + 1, isSymC))));
+  if (c === '"') {
+    const end = stringEnd(input, at);
+    return end === undefined ? err(mkErr('Unterminated string', pos.line, pos.column)) : ok(tokenAt('string', pos, input.slice(at, end)));
   }
-  if (c === ':') return lexKw(ns);
-  if (c === '"') return lexStr(ns);
-  if (isNumOrNeg(ns, c)) return lexNum(ns);
-  if (isSymS(c)) return lexSym(ns);
-  return err(mkErr(`Unexpected character '${c}'`, ns.line, ns.column));
+  if (isNumStart(input, at)) return ok(tokenAt('number', pos, input.slice(at, numberEnd(input, at))));
+  if (isSymS(c)) {
+    const value = input.slice(at, runEnd(input, at, isSymC));
+    return ok(tokenAt(symbolType(value), pos, value));
+  }
+  return err(mkErr(`Unexpected character '${c}'`, pos.line, pos.column));
 };
 
-const collectToks = (s: LS, acc: ReadonlyArray<Token>): Result<ReadonlyArray<Token>, ParseError> => {
-  const ns = skipWS(s);
-  if (ns.position >= ns.input.length) return ok([...acc, { type: 'eof', value: '', line: ns.line, column: ns.column }]);
-  const r = lexNext(ns);
+const lexNext = (input: string, pos: Pos): Result<Token, ParseError> => {
+  const c = input[pos.offset] ?? '\0';
+  const btype = BRACKETS[c];
+  if (btype !== undefined) return ok(tokenAt(btype, pos, c));
+  if (c === '#' && input[pos.offset + 1] === '{') return ok(tokenAt('lset', pos, '#{'));
+  if (c === '|') {
+    return err(mkErr("Unexpected character '|': the bar is signature notation only; write a choice as (one-of ...)", pos.line, pos.column));
+  }
+  return lexAtom(input, pos);
+};
+
+const skipGap = (input: string, pos: Pos): Pos => advanceTo(input, pos, gapEnd(input, pos.offset));
+
+const nextToken = (input: string) => (pos: Pos): Result<Step<Pos, Token>, ParseError> | undefined => {
+  const start = skipGap(input, pos);
+  if (start.offset >= input.length) return undefined;
+  const t = lexNext(input, start);
+  if (isErr(t)) return err(t.error);
+  return ok({ value: t.value, next: advanceTo(input, start, start.offset + t.value.value.length) });
+};
+
+export const tokenize = (input: string): Result<ReadonlyArray<Token>, ParseError> => {
+  const r = unfold({ offset: 0, line: 1, column: 1 }, nextToken(input));
   if (isErr(r)) return err(r.error);
-  return collectToks(r.value.next, [...acc, r.value.token]);
+  const end = skipGap(input, r.value.end);
+  return ok([...r.value.values, { type: 'eof', value: '', line: end.line, column: end.column }]);
 };
-
-export const tokenize = (input: string): Result<ReadonlyArray<Token>, ParseError> =>
-  collectToks({ input, position: 0, line: 1, column: 1 }, []);
 
 // ── Parser ────────────────────────────────────────────────────────────────────
 
@@ -170,30 +179,25 @@ const pEat = (s: PS, t: string, msg: string): Result<{ readonly tok: Token; read
   pIs(s, t) ? ok({ tok: pCur(s), next: pAdv(s) }) : err(mkErr(msg, pCur(s).line, pCur(s).column));
 
 type ElCtx = { readonly close: string; readonly recur: RFn };
-const collectEl = (s: PS, acc: ReadonlyArray<EdnNode>, ctx: ElCtx): Result<{ readonly elems: ReadonlyArray<EdnNode>; readonly next: PS }, ParseError> => {
-  if (pIs(s, ctx.close) || pCur(s).type === 'eof') return ok({ elems: acc, next: s });
-  const r = ctx.recur(s);
-  if (isErr(r)) return err(r.error);
-  return collectEl(r.value.next, [...acc, r.value.value], ctx);
-};
+const collectEl = (s: PS, ctx: ElCtx): Result<Unfolded<PS, EdnNode>, ParseError> =>
+  unfold(s, (p: PS) => (pIs(p, ctx.close) || pCur(p).type === 'eof' ? undefined : ctx.recur(p)));
 
 type BrCtx = { readonly open: string; readonly close: string; readonly delimiter?: 'vector' | 'set' };
 const parseSeq = (s: PS, br: BrCtx, recur: RFn): PR<EdnList> => {
   const t = pCur(s);
   const o = pEat(s, br.open, `Expected ${br.open}`);
   if (isErr(o)) return err(o.error);
-  const el = collectEl(o.value.next, [], { close: br.close, recur });
+  const el = collectEl(o.value.next, { close: br.close, recur });
   if (isErr(el)) return err(el.error);
-  const c = pEat(el.value.next, br.close, `Expected ${br.close}`);
+  const c = pEat(el.value.end, br.close, `Expected ${br.close}`);
   if (isErr(c)) return err(c.error);
   const delimiter = br.delimiter !== undefined ? { delimiter: br.delimiter } : {};
-  return ok({ value: { type: 'list', elements: el.value.elems, line: t.line, column: t.column, ...delimiter }, next: c.value.next });
+  return ok({ value: { type: 'list', elements: el.value.values, line: t.line, column: t.column, ...delimiter }, next: c.value.next });
 };
 
-const collectEnt = (
-  s: PS, acc: ReadonlyArray<readonly [string, EdnNode]>, recur: RFn,
-): Result<{ readonly entries: ReadonlyArray<readonly [string, EdnNode]>; readonly next: PS }, ParseError> => {
-  if (pIs(s, 'rbrace') || pCur(s).type === 'eof') return ok({ entries: acc, next: s });
+type Entry = readonly [string, EdnNode];
+const entryAt = (recur: RFn) => (s: PS): Result<Step<PS, Entry>, ParseError> | undefined => {
+  if (pIs(s, 'rbrace') || pCur(s).type === 'eof') return undefined;
   const kr = recur(s);
   if (isErr(kr)) return err(kr.error);
   const kn = kr.value.value;
@@ -203,18 +207,18 @@ const collectEnt = (
   }
   const vr = recur(kr.value.next);
   if (isErr(vr)) return err(vr.error);
-  return collectEnt(vr.value.next, [...acc, [key, vr.value.value]], recur);
+  return ok({ value: [key, vr.value.value] as const, next: vr.value.next });
 };
 
 const parseM = (s: PS, recur: RFn): PR<EdnMap> => {
   const t = pCur(s);
   const o = pEat(s, 'lbrace', 'Expected {');
   if (isErr(o)) return err(o.error);
-  const en = collectEnt(o.value.next, [], recur);
+  const en = unfold(o.value.next, entryAt(recur));
   if (isErr(en)) return err(en.error);
-  const c = pEat(en.value.next, 'rbrace', 'Expected }');
+  const c = pEat(en.value.end, 'rbrace', 'Expected }');
   if (isErr(c)) return err(c.error);
-  return ok({ value: { type: 'map', entries: intoMap(en.value.entries), line: t.line, column: t.column }, next: c.value.next });
+  return ok({ value: { type: 'map', entries: intoMap(en.value.values), line: t.line, column: t.column }, next: c.value.next });
 };
 
 const unquote = (s: string): string =>
@@ -272,15 +276,9 @@ const parseExpr = (s: PS): PR<EdnNode> => {
   return err(mkErr(`Unexpected token: ${t.type}`, t.line, t.column));
 };
 
-const collectAll = (s: PS, acc: ReadonlyArray<EdnNode>): Result<ReadonlyArray<EdnNode>, ParseError> => {
-  if (pCur(s).type === 'eof') return ok(acc);
-  const r = parseExpr(s);
-  if (isErr(r)) return err(r.error);
-  return collectAll(r.value.next, [...acc, r.value.value]);
-};
-
 export const parse = (input: string): Result<ReadonlyArray<EdnNode>, ParseError> => {
   const toks = tokenize(input);
   if (isErr(toks)) return err(toks.error);
-  return collectAll({ tokens: toks.value, position: 0 }, []);
+  const all = unfold({ tokens: toks.value, position: 0 }, (s: PS) => (pCur(s).type === 'eof' ? undefined : parseExpr(s)));
+  return isErr(all) ? err(all.error) : ok(all.value.values);
 };

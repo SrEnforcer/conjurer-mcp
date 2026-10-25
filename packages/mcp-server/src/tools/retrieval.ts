@@ -11,6 +11,7 @@ import {
 } from '@conjurer/core';
 import type { SymbolIndex, SpecReader, EdnNode, EdnList } from '@conjurer/core';
 import { isSome, isErr, fromNullable, getOrElseOption, mapOption, intoMap, sortWith, ordString } from '@tsfpp/prelude';
+import { guarded } from './guard.js';
 
 /**
  * Dependencies for retrieval handlers.
@@ -304,15 +305,15 @@ export const registerRetrievalTools = (server: McpServer, ctx: RetrievalContext)
   server.registerTool('check_symbol_coverage', {
     description: 'Report which Conjurer symbols a .cnj file references vs the full index — utilisation density and gap map',
     inputSchema: { path: z.string(), grimoire: z.string().optional() },
-  }, ({ path, grimoire }) => ({ content: [...handleCoverage(ctx, path, grimoire)] }));
+  }, ({ path, grimoire }) => ({ content: [...guarded(path, () => handleCoverage(ctx, path, grimoire))] }));
 
   server.registerTool('trace_symbol', {
     description: 'Return which .cnj files in a workspace reference a given symbol and how many times',
     inputSchema: { symbol: z.string(), file: z.string() },
-  }, ({ symbol, file }) => ({ content: [...handleTraceSymbol(ctx, symbol, file)] }));
+  }, ({ symbol, file }) => ({ content: [...guarded(file, () => handleTraceSymbol(ctx, symbol, file))] }));
 
   server.registerTool('explain_form', {
     description: 'Return a rich contextual explanation of a named .cnj form: type, referenced symbols with synopses, and applicable validation rules',
     inputSchema: { file: z.string(), name: z.string() },
-  }, ({ file, name }) => ({ content: [...handleExplainForm(ctx, file, name)] }));
+  }, ({ file, name }) => ({ content: [...guarded(file, () => handleExplainForm(ctx, file, name))] }));
 };

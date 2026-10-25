@@ -1,6 +1,8 @@
-import { ok, err, intoMap, isSome, fromNullable, absurd, matchOption } from '@tsfpp/prelude';
+import { ok, err, isErr, intoMap, isSome, fromNullable, absurd, matchOption } from '@tsfpp/prelude';
 import type { Result } from '@tsfpp/prelude';
 import type { EdnNode } from './edn-parser.js';
+import { unfold } from './iteration.js';
+import type { Step } from './iteration.js';
 import { bareName } from './references.js';
 
 export type Charter = {
@@ -102,17 +104,19 @@ const nodeStrList = (n: EdnNode): ReadonlyArray<string> => {
   return [];
 };
 
-const collectKV = (
-  elems: ReadonlyArray<EdnNode>, i: number, acc: ReadonlyArray<readonly [string, EdnNode]>,
-): ReadonlyArray<readonly [string, EdnNode]> => {
-  const key = fromNullable(elems[i]);
-  const val = fromNullable(elems[i + 1]);
-  if (!isSome(key) || !isSome(val) || key.value.type !== 'keyword') return acc;
-  return collectKV(elems, i + 2, [...acc, [key.value.value.substring(1), val.value]]);
+type KV = readonly [string, EdnNode];
+
+// Keyword–value pairs from index `i` on, up to the first element that is not a keyword with a value.
+const kvAt = (elems: ReadonlyArray<EdnNode>) => (i: number): Result<Step<number, KV>, never> | undefined => {
+  const key = elems[i];
+  const val = elems[i + 1];
+  return key?.type === 'keyword' && val !== undefined ? ok({ value: [key.value.substring(1), val] as const, next: i + 2 }) : undefined;
 };
 
-const kvMap = (elems: ReadonlyArray<EdnNode>, start: number): ReadonlyMap<string, EdnNode> =>
-  intoMap(collectKV(elems, start, []));
+const kvMap = (elems: ReadonlyArray<EdnNode>, start: number): ReadonlyMap<string, EdnNode> => {
+  const pairs = unfold(start, kvAt(elems));
+  return intoMap(isErr(pairs) ? [] : pairs.value.values);
+};
 
 const getNode = (m: ReadonlyMap<string, EdnNode>, key: string): EdnNode | undefined =>
   m.get(key);
@@ -280,59 +284,16 @@ const parseDomainForm = (elems: ReadonlyArray<EdnNode>): CnjDomainForm | undefin
   };
 };
 
-type FormAcc = {
-  readonly charter: Charter | undefined;
-  readonly assets: ReadonlyArray<CnjAsset>;
-  readonly targets: ReadonlyArray<CnjTarget>;
-  readonly domainForms: ReadonlyArray<CnjDomainForm>;
-  readonly candidates: ReadonlyArray<CnjCandidateForm>;
-  readonly hoists: ReadonlyArray<CnjHoist>;
-  readonly reassessments: ReadonlyArray<CnjReassessment>;
-};
+type ListForm = { readonly form: string; readonly elements: ReadonlyArray<EdnNode> };
 
-const appendIfDefined = <T>(
-  items: ReadonlyArray<T>,
-  next: T | undefined,
-): ReadonlyArray<T> => (next !== undefined ? [...items, next] : items);
+const KNOWN_FORMS: ReadonlyArray<string> = ['charter', 'asset', 'target', 'f/candidate', 'f/hoist', 'f/reassess'];
 
-const updateAccForForm = (
-  acc: FormAcc,
-  elements: ReadonlyArray<EdnNode>,
-  form: string,
-): FormAcc => {
-  switch (form) {
-    case 'charter':
-      return { ...acc, charter: parseCharter(elements) };
-    case 'asset':
-      return { ...acc, assets: appendIfDefined(acc.assets, parseAsset(elements)) };
-    case 'target':
-      return { ...acc, targets: appendIfDefined(acc.targets, parseTarget(elements)) };
-    case 'f/candidate':
-      return { ...acc, candidates: appendIfDefined(acc.candidates, parseCandidate(elements)) };
-    case 'f/hoist':
-      return { ...acc, hoists: appendIfDefined(acc.hoists, parseHoist(elements)) };
-    case 'f/reassess':
-      return { ...acc, reassessments: appendIfDefined(acc.reassessments, parseReassess(elements)) };
-    default: {
-      const domainForm = parseDomainForm(elements);
-      return domainForm !== undefined
-        ? { ...acc, domainForms: [...acc.domainForms, domainForm] }
-        : acc;
-    }
-  }
-};
-
-const processForms = (
-  nodes: ReadonlyArray<EdnNode>,
-  acc: FormAcc,
-  i: number,
-): FormAcc => {
-  const node = fromNullable(nodes[i]);
-  if (!isSome(node)) return acc;
-  const n = node.value;
-  if (n.type !== 'list') return processForms(nodes, acc, i + 1);
-  return processForms(nodes, updateAccForForm(acc, n.elements, formName(n.elements)), i + 1);
-};
+/** Every form headed `form`, parsed, in written order; a form that does not parse is left out. */
+const formsOf = <T>(forms: ReadonlyArray<ListForm>, form: string, parseForm: (elements: ReadonlyArray<EdnNode>) => T | undefined): ReadonlyArray<T> =>
+  forms.flatMap((f): ReadonlyArray<T> => {
+    const parsed = f.form === form ? parseForm(f.elements) : undefined;
+    return parsed !== undefined ? [parsed] : [];
+  });
 
 const defaultCharter: Charter = {
   title: '',
@@ -381,18 +342,22 @@ export const toCnjModel = (
   sourceFile: string,
 ): Result<CnjDocument, CnjModelError> => {
   if (nodes.length === 0) return err({ kind: 'empty_document', sourceFile });
-  const initial: FormAcc = {
-    charter: undefined, assets: [], targets: [], domainForms: [], candidates: [], hoists: [], reassessments: [],
-  };
-  const result = processForms(nodes, initial, 0);
+  const forms = nodes.flatMap((n): ReadonlyArray<ListForm> => (n.type === 'list' ? [{ form: formName(n.elements), elements: n.elements }] : []));
+  // A later charter replaces an earlier one; every other form not known here is a domain form.
+  const charters = forms.filter((f) => f.form === 'charter').map((f) => parseCharter(f.elements));
+  const hoists = formsOf(forms, 'f/hoist', parseHoist);
+  const reassessments = formsOf(forms, 'f/reassess', parseReassess);
   return ok({
-    charter: result.charter ?? defaultCharter,
-    assets: result.assets,
-    targets: result.targets,
-    domainForms: result.domainForms,
-    candidates: result.candidates.map((c) => withLifecycle(c, result.reassessments, result.hoists)),
-    hoists: result.hoists,
-    reassessments: result.reassessments,
+    charter: charters[charters.length - 1] ?? defaultCharter,
+    assets: formsOf(forms, 'asset', parseAsset),
+    targets: formsOf(forms, 'target', parseTarget),
+    domainForms: forms.filter((f) => !KNOWN_FORMS.includes(f.form)).flatMap((f) => {
+      const parsed = parseDomainForm(f.elements);
+      return parsed !== undefined ? [parsed] : [];
+    }),
+    candidates: formsOf(forms, 'f/candidate', parseCandidate).map((c) => withLifecycle(c, reassessments, hoists)),
+    hoists,
+    reassessments,
     sourceFile,
   });
 };
