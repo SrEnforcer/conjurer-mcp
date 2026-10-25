@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { buildWorkspaceSnapshot, describeWorkspaceError, topoOrder, validateCnj } from '@conjurer/core';
 import { isErr, fromNullable, getOrElseOption, intoMap } from '@tsfpp/prelude';
 import type { WorkspaceSnapshot } from '@conjurer/core';
+import { guarded } from './guard.js';
 
 type ToolContent = ReadonlyArray<{ readonly type: 'text'; readonly text: string }>;
 
@@ -191,12 +192,12 @@ export const registerLensTools = (server: McpServer): void => {
   server.registerTool('lens_open_questions', {
     description: 'Aggregate all open questions across a workspace — cross-file open question inventory',
     inputSchema: { file: z.string() },
-  }, ({ file }) => ({ content: [...handleLensOpenQuestions(file)] }));
+  }, ({ file }) => ({ content: [...guarded(file, () => handleLensOpenQuestions(file))] }));
 
   server.registerTool('workspace_summary', {
     description: 'Aggregate structural stats across all .cnj files in a workspace in one call',
     inputSchema: { file: z.string() },
-  }, ({ file }) => ({ content: [...handleWorkspaceSummary(file)] }));
+  }, ({ file }) => ({ content: [...guarded(file, () => handleWorkspaceSummary(file))] }));
 
   server.registerTool('lens_dependency_graph', {
     description: 'Return the cross-file target dependency graph and topological order for a workspace',
@@ -204,5 +205,5 @@ export const registerLensTools = (server: McpServer): void => {
       file: z.string(),
       target: z.string().optional(),
     },
-  }, ({ file, target }) => ({ content: [...handleLensDependencyGraph(file, target)] }));
+  }, ({ file, target }) => ({ content: [...guarded(file, () => handleLensDependencyGraph(file, target))] }));
 };

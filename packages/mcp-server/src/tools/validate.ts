@@ -5,9 +5,13 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { dirname, resolve as resolvePath } from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { parse, toCnjModel, describeCnjModelError, validateCnj, collectSymbolRefs, isCnjFileReference } from '@conjurer/core';
-import type { ValidationMode, SymbolIndex, EdnNode, CnjDocument } from '@conjurer/core';
-import { isErr, isDefined, match } from '@tsfpp/prelude';
+import {
+  parse, toCnjModel, describeCnjModelError, validateCnj, collectSymbolRefs, isCnjFileReference, readCnjText, describeCnjFileReason, describeCnjFileError, describeThrown,
+} from '@conjurer/core';
+import type { ValidationMode, SymbolIndex, EdnNode, CnjDocument, CnjFileError, Violation } from '@conjurer/core';
+import { ok, err, isErr, isDefined, tryCatch, flatMap } from '@tsfpp/prelude';
+import type { Result } from '@tsfpp/prelude';
+import { guarded } from './guard.js';
 
 type ToolContent = ReadonlyArray<{ readonly type: 'text'; readonly text: string }>;
 
@@ -20,25 +24,48 @@ export type ValidateContext = {
   readonly index: SymbolIndex;
 };
 
+const readReferencedDoc = (path: string): Result<CnjDocument, CnjFileError> => {
+  const text = readCnjText(path);
+  if (isErr(text)) return err(text.error);
+  const ast = parse(text.value);
+  if (isErr(ast)) return err({ kind: 'file_unparseable', path, cause: ast.error });
+  const model = toCnjModel(ast.value, path);
+  return isErr(model) ? err({ kind: 'file_unmodelable', path, cause: model.error }) : ok(model.value);
+};
+
+type ReferencedDocs = { readonly docs: ReadonlyArray<CnjDocument>; readonly findings: ReadonlyArray<Violation> };
+
 /**
  * Parse the local `.cnj` files a charter references, so reference keywords resolve across the
- * project. Unreadable or unparsable files are skipped; `references-resolve` reports them.
+ * project. A missing file is left to `references-resolve`; a file that exists but cannot be
+ * read is a `reference-parses` warning on that reference, not a failure of the validated file.
  *
  * @param filePath - The validated file.
  * @param references - Its charter `:references`.
- * @returns The referenced documents that could be read.
+ * @returns The referenced documents that could be read, and a finding per one that could not.
  */
-const loadReferencedDocs = (filePath: string, references: ReadonlyArray<string>): ReadonlyArray<CnjDocument> =>
-  references
+const loadReferencedDocs = (filePath: string, references: ReadonlyArray<string>): ReferencedDocs => {
+  const results = references
     .filter(isCnjFileReference)
-    .map((ref) => resolvePath(dirname(filePath), ref))
-    .filter((path) => existsSync(path))
-    .flatMap((path): ReadonlyArray<CnjDocument> => {
-      const ast = parse(readFileSync(path, 'utf8'));
-      if (isErr(ast)) return [];
-      const model = toCnjModel(ast.value, path);
-      return match((): ReadonlyArray<CnjDocument> => [], (doc: CnjDocument) => [doc])(model);
-    });
+    .map((ref) => ({ ref, path: resolvePath(dirname(filePath), ref) }))
+    .filter(({ path }) => existsSync(path))
+    .map(({ ref, path }) => ({
+      ref,
+      doc: flatMap((r: Result<CnjDocument, CnjFileError>) => r)(tryCatch(
+        () => readReferencedDoc(path),
+        (e): CnjFileError => ({ kind: 'file_unreadable', path, reason: describeThrown(e) }),
+      )),
+    }));
+  return {
+    docs: results.flatMap(({ doc }) => (isErr(doc) ? [] : [doc.value])),
+    findings: results.flatMap(({ ref, doc }): ReadonlyArray<Violation> => (isErr(doc) ? [{
+      rule: 'reference-parses',
+      severity: 'warning',
+      location: 'charter.references',
+      message: `Reference '${ref}' could not be read (${describeCnjFileReason(doc.error)}); names declared there are not checked`,
+    }] : [])),
+  };
+};
 
 /** Options for validate_cnj: the mode, strictness, and the symbol index when one is loaded. */
 export type ValidateRequest = {
@@ -49,9 +76,9 @@ export type ValidateRequest = {
 
 export const handleValidate = (filePath: string, request: ValidateRequest = {}): ToolContent => {
   const { mode, strict, index } = request;
-  if (!existsSync(filePath)) return toContent(`File not found: ${filePath}`);
-  const src = readFileSync(filePath, 'utf8');
-  const parsed = parse(src);
+  const src = readCnjText(filePath);
+  if (isErr(src)) return toContent(describeCnjFileError(src.error));
+  const parsed = parse(src.value);
   if (isErr(parsed)) return toContent(`Parse error: ${parsed.error.message}`);
   const doc = toCnjModel(parsed.value, filePath);
   if (isErr(doc)) return toContent(`Model error: ${describeCnjModelError(doc.error)}`);
@@ -61,16 +88,17 @@ export const handleValidate = (filePath: string, request: ValidateRequest = {}):
     ref,
     exists: /^https?:\/\//.test(ref) || existsSync(resolvePath(dirname(filePath), ref)),
   }));
-  const referencedDocs = loadReferencedDocs(filePath, doc.value.charter.references);
-  const base = { referencesStatus, referencedDocs, ast: parsed.value };
+  const referenced = loadReferencedDocs(filePath, doc.value.charter.references);
+  const base = { referencesStatus, referencedDocs: referenced.docs, ast: parsed.value };
   const report = validateCnj(
     doc.value,
     parseMode(mode),
     isDefined(index) && isDefined(symbolRefs) ? { ...base, index, symbolRefs } : base,
   );
-  const effectiveValid = strict === true ? report.violations.length === 0 : report.valid;
+  const violations = [...report.violations, ...referenced.findings];
+  const effectiveValid = strict === true ? violations.length === 0 : report.valid;
   return toContent(JSON.stringify(
-    { valid: effectiveValid, violations: report.violations },
+    { valid: effectiveValid, violations },
     null, 2,
   ));
 };
@@ -170,11 +198,11 @@ export const registerValidateTools = (server: McpServer, ctx?: ValidateContext):
       strict: z.boolean().optional(),
     },
   }, ({ path, mode, strict }) => ({
-    content: [...handleValidate(path, {
+    content: [...guarded(path, () => handleValidate(path, {
       ...(mode !== undefined ? { mode } : {}),
       ...(strict !== undefined ? { strict } : {}),
       ...(ctx !== undefined ? { index: ctx.index } : {}),
-    })],
+    }))],
   }));
 
   server.registerTool('lint_disk_consistency', {
@@ -187,5 +215,5 @@ export const registerValidateTools = (server: McpServer, ctx?: ValidateContext):
         'Directory root to search for module files; defaults to dirname(path)',
       ),
     },
-  }, ({ path, root }) => ({ content: [...handleLintDiskConsistency(path, root)] }));
+  }, ({ path, root }) => ({ content: [...guarded(path, () => handleLintDiskConsistency(path, root))] }));
 };

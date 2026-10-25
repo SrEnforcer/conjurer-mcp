@@ -8,6 +8,7 @@ import { parse, toCnjModel, describeCnjModelError, effectiveScores } from '@conj
 import type { Charter, CnjDocument, CnjCandidateForm, CnjHoist } from '@conjurer/core';
 import type { EdnNode } from '@conjurer/core';
 import { isErr, entriesOf, intoMap } from '@tsfpp/prelude';
+import { guarded } from './guard.js';
 
 type ToolContent = ReadonlyArray<{ readonly type: 'text'; readonly text: string }>;
 
@@ -283,7 +284,7 @@ export const registerDiffTools = (server: McpServer): void => {
   server.registerTool('diff_cnj', {
     description: 'Return a structured semantic diff between two .cnj files',
     inputSchema: { path_a: z.string(), path_b: z.string() },
-  }, ({ path_a, path_b }) => ({ content: [...handleDiffCnj(path_a, path_b)] }));
+  }, ({ path_a, path_b }) => ({ content: [...guarded(`${path_a} and ${path_b}`, () => handleDiffCnj(path_a, path_b))] }));
 
   server.registerTool('diff_candidates', {
     description:
@@ -291,5 +292,5 @@ export const registerDiffTools = (server: McpServer): void => {
       'candidates added/removed, status changes, score deltas, and graduated candidates ' +
       '(present in A, hoisted in B). Keyed by stable :id.',
     inputSchema: { path_a: z.string().describe('Baseline .cnj path'), path_b: z.string().describe('Target .cnj path') },
-  }, ({ path_a, path_b }) => ({ content: [...handleDiffCandidates(path_a, path_b)] }));
+  }, ({ path_a, path_b }) => ({ content: [...guarded(`${path_a} and ${path_b}`, () => handleDiffCandidates(path_a, path_b))] }));
 };

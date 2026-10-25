@@ -14,6 +14,7 @@ import {
 } from '@conjurer/core';
 import type { CnjCandidateForm, CnjHoist, WorkspaceSnapshot, WorkspaceError, ForesightHealthOptions } from '@conjurer/core';
 import { isDefined, match } from '@tsfpp/prelude';
+import { guarded } from './guard.js';
 
 type ToolContent = ReadonlyArray<{ readonly type: 'text'; readonly text: string }>;
 
@@ -270,7 +271,7 @@ const registerHoistReadinessTool = (server: McpServer): void => {
         min_score: z.number().int().min(1).max(40).optional().describe('Minimum total score — default 28'),
       },
     },
-    ({ file, min_score }) => ({ content: [...handleHoistReadiness(file, min_score)] }),
+    ({ file, min_score }) => ({ content: [...guarded(file, () => handleHoistReadiness(file, min_score))] }),
   );
 };
 
@@ -289,7 +290,7 @@ const registerListCandidatesTool = (server: McpServer): void => {
       },
     },
     ({ file, status, cluster }) => ({
-      content: [...handleListCandidates(file, status, cluster)],
+      content: [...guarded(file, () => handleListCandidates(file, status, cluster))],
     }),
   );
 };
@@ -310,10 +311,10 @@ const registerForesightHealthTool = (server: McpServer): void => {
       },
     },
     ({ file, stale_days, min_rationale_length, high_score_threshold }) => ({
-      content: [...handleForesightHealth(
+      content: [...guarded(file, () => handleForesightHealth(
         file,
         toForesightHealthOptions(stale_days, min_rationale_length, high_score_threshold),
-      )],
+      ))],
     }),
   );
 };

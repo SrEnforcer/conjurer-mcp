@@ -20,11 +20,24 @@ const virtualFiles: Readonly<Record<string, string>> = {
   '/vfs/with-bad-ref.cnj': WITH_BAD_REF,
   '/vfs/with-mixed-refs.cnj': WITH_MIXED_REFS,
   '/vfs/ref-exists.cnj': VALID,  // referenced file that exists
+  '/vfs/with-broken-ref.cnj': `(charter "Proj" :version "1.0.0" :goals ["g"] :references ["ref-broken.cnj"])`,
+  '/vfs/ref-broken.cnj': '(target "lost" :language "ts"',
+  '/vfs/with-throwing-ref.cnj': `(charter "Proj" :version "1.0.0" :goals ["g"] :references ["ref-throws.cnj"])`,
+  '/vfs/ref-throws.cnj': '',
+  '/vfs/with-long-ref.cnj': `(charter "Proj" :version "1.0.0" :goals ["g"] :references ["ref-long.cnj"])`,
+  '/vfs/ref-long.cnj': `(charter "Long" :version "1.0.0" :goals ["g"])\n(shape endpoint-contract :notes "${'x'.repeat(200_000)}")`,
 };
+
+// Exhausts the stack for real: the RangeError a per-character recursion used to raise.
+const overflow = (n: number): number => overflow(n + 1) + 1;
 
 vi.mock('node:fs', () => ({
   existsSync: (path: string): boolean => Object.prototype.hasOwnProperty.call(virtualFiles, path),
-  readFileSync: (path: string): string => getOrElseOption(() => '')(fromNullable(virtualFiles[path])),
+  readFileSync: (path: string): string => {
+    // An exception from inside the read, as an unreadable path or a parser fault would give.
+    if (path === '/vfs/ref-throws.cnj') return String(overflow(0));
+    return getOrElseOption(() => '')(fromNullable(virtualFiles[path]));
+  },
 }));
 
 const ValidateSchema = z.looseObject({
@@ -142,5 +155,37 @@ describe('handleValidate — references check integration', () => {
     const refViolations = violationsOf(d).filter((v) => v.rule === 'references-resolve');
     expect(refViolations).toHaveLength(1);
     expect(refViolations[0]?.message).toContain('ref-missing.cnj');
+  });
+});
+
+describe('handleValidate — referenced files that cannot be read', () => {
+  it('reports a referenced file that does not parse as a warning on that reference', () => {
+    const d = parseToolJson(handleValidate('/vfs/with-broken-ref.cnj'), ValidateSchema);
+    expect(d.valid).toBe(true);
+    expect(violationsOf(d).filter((v) => v.rule === 'reference-parses')).toEqual([{
+      rule: 'reference-parses',
+      severity: 'warning',
+      location: 'charter.references',
+      message: "Reference 'ref-broken.cnj' could not be read (Parse error at 1:30: Expected rparen); names declared there are not checked",
+    }]);
+  });
+
+  it('reports an exception while reading a referenced file as a finding, not a failure', () => {
+    const d = parseToolJson(handleValidate('/vfs/with-throwing-ref.cnj'), ValidateSchema);
+    expect(d.valid).toBe(true);
+    expect(violationsOf(d).filter((v) => v.rule === 'reference-parses').map((v) => v.message)).toEqual([
+      "Reference 'ref-throws.cnj' could not be read (Unreadable: Maximum call stack size exceeded); names declared there are not checked",
+    ]);
+  });
+
+  it('fails strict mode on such a finding', () => {
+    const d = parseToolJson(handleValidate('/vfs/with-broken-ref.cnj', { strict: true }), ValidateSchema);
+    expect(d.valid).toBe(false);
+  });
+
+  it('validates a file whose reference holds a 200,000-character string', () => {
+    const d = parseToolJson(handleValidate('/vfs/with-long-ref.cnj'), ValidateSchema);
+    expect(d.valid).toBe(true);
+    expect(violationsOf(d).filter((v) => v.rule === 'reference-parses')).toEqual([]);
   });
 });

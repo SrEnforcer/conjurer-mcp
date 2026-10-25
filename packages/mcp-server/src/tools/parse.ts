@@ -8,6 +8,7 @@ import { parse, toCnjModel, describeCnjModelError } from '@conjurer/core';
 import type { Charter, CnjTarget, CnjAsset } from '@conjurer/core';
 import type { EdnNode } from '@conjurer/core';
 import { isErr, entriesOf, fromNullable, isSome, getOrElseOption, mapOption } from '@tsfpp/prelude';
+import { guarded } from './guard.js';
 
 type ToolContent = ReadonlyArray<{ readonly type: 'text'; readonly text: string }>;
 
@@ -129,10 +130,10 @@ export const registerParseTools = (server: McpServer): void => {
   server.registerTool('parse_cnj', {
     description: 'Parse a .cnj file into a structured document model',
     inputSchema: { path: z.string().optional(), content: z.string().optional() },
-  }, ({ path, content }) => ({ content: [...handleParseCnj(path, content)] }));
+  }, ({ path, content }) => ({ content: [...guarded(path ?? 'inline content', () => handleParseCnj(path, content))] }));
 
   server.registerTool('read_charter', {
     description: 'Return a .cnj file\'s charter fields',
     inputSchema: { path: z.string(), fields: z.array(z.string()).optional() },
-  }, ({ path, fields }) => ({ content: [...handleReadCharter(path, fields)] }));
+  }, ({ path, fields }) => ({ content: [...guarded(path, () => handleReadCharter(path, fields))] }));
 };
